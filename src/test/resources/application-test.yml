@@ -1,0 +1,50 @@
+spring:
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      maximum-pool-size: 3
+      minimum-idle: 1
+
+  batch:
+    jdbc:
+      initialize-schema: always
+      table-prefix: BATCH_
+    job:
+      enabled: false
+
+  jpa:
+    hibernate:
+      ddl-auto: none
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.MySQLDialect
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+    table: flyway_schema_history_batch
+
+roubometro:
+  portal:
+    csv-url: http://localhost:8089/Arquivos/BaseMunicipioMensal.csv
+    scraping-url: http://localhost:8089/estatistica.html
+    connect-timeout-ms: 5000
+    read-timeout-ms: 10000
+    retry-attempts: 1
+    retry-backoff-ms: 100
+  batch:
+    chunk-size: 10
+    skip-limit: 50
+    temp-dir: /tmp/roubometro-test
+    csv-encoding: ISO-8859-1
+    csv-delimiter: ";"
+    include-zero-values: false
+  schedule:
+    cron: "-"
+    enabled: false
+
+logging:
+  level:
+    br.com.roubometro: DEBUG
+    org.springframework.batch: DEBUG

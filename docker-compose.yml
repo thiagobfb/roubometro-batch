@@ -1,0 +1,47 @@
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: roubometro-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: roubometro
+      MYSQL_USER: roubometro
+      MYSQL_PASSWORD: roubometro
+    ports:
+      - "127.0.0.1:3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./docker/init-db:/docker-entrypoint-initdb.d
+    command: >
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+      --default-authentication-plugin=mysql_native_password
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-proot"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  batch:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: roubometro-batch
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: local
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_NAME: roubometro
+      DB_USER: roubometro
+      DB_PASSWORD: roubometro
+    volumes:
+      - batch_data:/tmp/roubometro
+
+volumes:
+  mysql_data:
+    driver: local
+  batch_data:
+    driver: local

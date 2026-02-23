@@ -1,0 +1,13 @@
+.env
+*.env
+.git
+.idea
+.vscode
+target/
+data/
+*.jks
+*.p12
+*.pem
+docs/
+prompts/
+.claude/
