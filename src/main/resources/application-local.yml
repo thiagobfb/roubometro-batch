@@ -1,4 +1,8 @@
+
 spring:
+  batch:
+    job:
+      enabled: true
   datasource:
     url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:roubometro}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=America/Sao_Paulo&characterEncoding=UTF-8
     username: ${DB_USER:roubometro}
