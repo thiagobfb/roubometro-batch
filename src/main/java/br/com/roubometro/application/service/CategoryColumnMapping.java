@@ -22,8 +22,10 @@ public final class CategoryColumnMapping {
         map.put("latrocinio", "Latrocinio");
         map.put("cvli", "CVLI");
         map.put("homPorIntervPolicial", "Homicidio por intervencao policial");
+        map.put("feminicidio", "Feminicidio");
         map.put("letalidadeViolenta", "Letalidade violenta");
         map.put("tentatHom", "Tentativa de homicidio");
+        map.put("tentativaFeminicidio", "Tentativa de feminicidio");
         map.put("lesaoCorpDolosa", "Lesao corporal dolosa");
         map.put("estupro", "Estupro");
         map.put("homCulposo", "Homicidio culposo");
@@ -32,6 +34,7 @@ public final class CategoryColumnMapping {
         map.put("rouboCelular", "Roubo de celular");
         map.put("rouboEmColetivo", "Roubo em coletivo");
         map.put("rouboRua", "Roubo de rua");
+        map.put("rouboVeiculo", "Roubo de veiculo");
         map.put("rouboCarga", "Roubo de carga");
         map.put("rouboComercio", "Roubo a comercio");
         map.put("rouboResidencia", "Roubo a residencia");

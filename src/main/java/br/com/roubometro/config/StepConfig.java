@@ -8,8 +8,10 @@ import br.com.roubometro.application.step.FinalizationTasklet;
 import br.com.roubometro.domain.exception.CsvParsingException;
 import br.com.roubometro.domain.exception.DataIntegrityException;
 import br.com.roubometro.domain.model.CsvEstatisticaRow;
+import org.springframework.batch.item.file.FlatFileParseException;
 import br.com.roubometro.domain.model.MonthlyStat;
 import br.com.roubometro.infrastructure.writer.ListUnpackingItemWriter;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.batch.core.Step;
 import org.springframework.batch.core.configuration.annotation.StepScope;
 import org.springframework.batch.core.repository.JobRepository;
@@ -25,6 +27,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 
 import java.util.List;
 
+@Slf4j
 @Configuration
 public class StepConfig {
 
@@ -34,6 +37,7 @@ public class StepConfig {
             PlatformTransactionManager transactionManager,
             DataAcquisitionTasklet dataAcquisitionTasklet
     ) {
+        log.info("Configuring step: dataAcquisitionStep");
         return new StepBuilder("dataAcquisitionStep", jobRepository)
                 .tasklet(dataAcquisitionTasklet, transactionManager)
                 .allowStartIfComplete(true)
@@ -48,6 +52,7 @@ public class StepConfig {
             @Value("${roubometro.batch.include-zero-values:false}") boolean includeZeroValues,
             @Value("#{jobExecutionContext['csvFileName'] ?: 'unknown'}") String sourceFile
     ) {
+        log.info("Creating EstatisticaItemProcessor: sourceFile={}, includeZeroValues={}", sourceFile, includeZeroValues);
         return new EstatisticaItemProcessor(
                 categoryLookupService, municipalityLookupService, includeZeroValues, sourceFile
         );
@@ -64,6 +69,9 @@ public class StepConfig {
             MunicipalityLookupService municipalityLookupService,
             AppProperties appProperties
     ) {
+        log.info("Configuring step: dataProcessingStep (chunkSize={}, skipLimit={})",
+                appProperties.batch().chunkSize(), appProperties.batch().skipLimit());
+
         ListUnpackingItemWriter<MonthlyStat> unpackingWriter = new ListUnpackingItemWriter<>(monthlyStatJdbcWriter);
 
         return new StepBuilder("dataProcessingStep", jobRepository)
@@ -76,6 +84,7 @@ public class StepConfig {
                 .skip(CsvParsingException.class)
                 .skip(DataIntegrityException.class)
                 .skip(NumberFormatException.class)
+                .skip(FlatFileParseException.class)
                 .retryLimit(3)
                 .retry(DeadlockLoserDataAccessException.class)
                 .retry(TransientDataAccessException.class)
@@ -89,6 +98,7 @@ public class StepConfig {
             PlatformTransactionManager transactionManager,
             FinalizationTasklet finalizationTasklet
     ) {
+        log.info("Configuring step: finalizationStep");
         return new StepBuilder("finalizationStep", jobRepository)
                 .tasklet(finalizationTasklet, transactionManager)
                 .build();
