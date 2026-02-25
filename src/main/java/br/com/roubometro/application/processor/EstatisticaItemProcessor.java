@@ -6,8 +6,7 @@ import br.com.roubometro.application.service.MunicipalityLookupService;
 import br.com.roubometro.domain.exception.CsvParsingException;
 import br.com.roubometro.domain.model.CsvEstatisticaRow;
 import br.com.roubometro.domain.model.MonthlyStat;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.batch.item.ItemProcessor;
 
 import java.lang.reflect.Method;
@@ -15,9 +14,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
+@Slf4j
 public class EstatisticaItemProcessor implements ItemProcessor<CsvEstatisticaRow, List<MonthlyStat>> {
 
-    private static final Logger log = LoggerFactory.getLogger(EstatisticaItemProcessor.class);
     private static final Map<String, String> COLUMN_TO_CATEGORY = CategoryColumnMapping.getColumnToCategory();
 
     private final CategoryLookupService categoryLookupService;
@@ -39,6 +38,8 @@ public class EstatisticaItemProcessor implements ItemProcessor<CsvEstatisticaRow
 
     @Override
     public List<MonthlyStat> process(CsvEstatisticaRow row) throws Exception {
+        log.debug("Processing CSV row: fmun_cod={}, ano={}, mes={}", row.getFmunCod(), row.getAno(), row.getMes());
+
         // Sanitize string fields
         String fmunCodRaw = sanitize(row.getFmunCod());
         String anoRaw = sanitize(row.getAno());
@@ -125,10 +126,23 @@ public class EstatisticaItemProcessor implements ItemProcessor<CsvEstatisticaRow
                 continue;
             }
 
-            stats.add(new MonthlyStat(municipalityId, year, month, categoryId, value, sourceFile));
+            stats.add(MonthlyStat.builder()
+                    .municipalityId(municipalityId)
+                    .year(year)
+                    .month(month)
+                    .categoryId(categoryId)
+                    .categoryValue(value)
+                    .sourceFile(sourceFile)
+                    .build());
         }
 
-        return stats.isEmpty() ? null : stats;
+        if (stats.isEmpty()) {
+            log.debug("No stats produced for row: fmun_cod={}, ano={}, mes={}", fmunCodRaw, anoRaw, mesRaw);
+            return null;
+        }
+
+        log.debug("Produced {} stats for row: fmun_cod={}, ano={}, mes={}", stats.size(), fmunCodRaw, anoRaw, mesRaw);
+        return stats;
     }
 
     private static String sanitize(String value) {

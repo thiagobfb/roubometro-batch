@@ -2,22 +2,18 @@ package br.com.roubometro.application.service;
 
 import br.com.roubometro.domain.model.BatchFileMetadata;
 import br.com.roubometro.infrastructure.repository.BatchFileMetadataRepository;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 
+@Slf4j
 @Service
+@RequiredArgsConstructor
 public class FileMetadataService {
 
-    private static final Logger log = LoggerFactory.getLogger(FileMetadataService.class);
-
     private final BatchFileMetadataRepository repository;
-
-    public FileMetadataService(BatchFileMetadataRepository repository) {
-        this.repository = repository;
-    }
 
     public boolean isNewFile(String fileHash) {
         return repository.findTopByOrderByDownloadedAtDesc()
@@ -26,15 +22,17 @@ public class FileMetadataService {
     }
 
     public BatchFileMetadata register(String fileName, String fileUrl, String fileHash, long fileSizeBytes) {
-        BatchFileMetadata metadata = new BatchFileMetadata();
-        metadata.setFileName(fileName);
-        metadata.setFileUrl(fileUrl);
-        metadata.setFileHash(fileHash);
-        metadata.setFileSizeBytes(fileSizeBytes);
-        metadata.setDownloadedAt(LocalDateTime.now());
-        metadata.setProcessed(false);
-        metadata.setCreatedAt(LocalDateTime.now());
-        metadata.setUpdatedAt(LocalDateTime.now());
+        var now = LocalDateTime.now();
+        BatchFileMetadata metadata = BatchFileMetadata.builder()
+                .fileName(fileName)
+                .fileUrl(fileUrl)
+                .fileHash(fileHash)
+                .fileSizeBytes(fileSizeBytes)
+                .downloadedAt(now)
+                .processed(false)
+                .createdAt(now)
+                .updatedAt(now)
+                .build();
 
         metadata = repository.save(metadata);
         log.info("Registered file metadata: id={}, fileName={}, hash={}", metadata.getId(), fileName, fileHash);

@@ -1,6 +1,7 @@
 package br.com.roubometro.infrastructure.reader;
 
 import br.com.roubometro.domain.model.CsvEstatisticaRow;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.batch.item.file.FlatFileItemReader;
 import org.springframework.batch.item.file.builder.FlatFileItemReaderBuilder;
 import org.springframework.batch.item.file.mapping.BeanWrapperFieldSetMapper;
@@ -12,6 +13,7 @@ import org.springframework.core.io.FileSystemResource;
 
 import java.nio.charset.Charset;
 
+@Slf4j
 @Configuration
 public class CsvItemReaderConfig {
 
@@ -22,10 +24,12 @@ public class CsvItemReaderConfig {
             @Value("${roubometro.batch.csv-encoding:ISO-8859-1}") String encoding,
             @Value("${roubometro.batch.csv-delimiter:;}") String delimiter
     ) {
+        log.info("Configuring CSV reader: file={}, encoding={}, delimiter='{}'", csvFilePath, encoding, delimiter);
+
         BeanWrapperFieldSetMapper<CsvEstatisticaRow> mapper = new BeanWrapperFieldSetMapper<>();
         mapper.setTargetType(CsvEstatisticaRow.class);
 
-        return new FlatFileItemReaderBuilder<CsvEstatisticaRow>()
+        FlatFileItemReader<CsvEstatisticaRow> reader = new FlatFileItemReaderBuilder<CsvEstatisticaRow>()
                 .name("csvEstatisticaReader")
                 .resource(new FileSystemResource(csvFilePath))
                 .encoding(Charset.forName(encoding).name())
@@ -35,5 +39,8 @@ public class CsvItemReaderConfig {
                 .names(CsvColumnNames.COLUMNS)
                 .fieldSetMapper(mapper)
                 .build();
+
+        log.info("CSV reader configured successfully with {} columns", CsvColumnNames.COLUMNS.length);
+        return reader;
     }
 }

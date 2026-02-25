@@ -1,9 +1,15 @@
 package br.com.roubometro.domain.model;
 
 import jakarta.persistence.*;
+import lombok.*;
 
 @Entity
 @Table(name = "municipalities")
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
 public class Municipality {
 
     @Id
@@ -17,16 +23,4 @@ public class Municipality {
 
     @Column
     private String region;
-
-    public Long getId() { return id; }
-    public void setId(Long id) { this.id = id; }
-
-    public String getName() { return name; }
-    public void setName(String name) { this.name = name; }
-
-    public Long getStateId() { return stateId; }
-    public void setStateId(Long stateId) { this.stateId = stateId; }
-
-    public String getRegion() { return region; }
-    public void setRegion(String region) { this.region = region; }
 }

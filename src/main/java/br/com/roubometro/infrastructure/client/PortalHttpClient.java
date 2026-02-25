@@ -2,8 +2,8 @@ package br.com.roubometro.infrastructure.client;
 
 import br.com.roubometro.config.AppProperties;
 import br.com.roubometro.domain.exception.PortalAccessException;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.io.InputStream;
@@ -13,32 +13,56 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.HashSet;
 import java.util.Set;
 
+@Slf4j
 @Component
 public class PortalHttpClient {
 
-    private static final Logger log = LoggerFactory.getLogger(PortalHttpClient.class);
-    private static final Set<String> ALLOWED_HOSTS = Set.of(
+    private static final Set<String> DEFAULT_ALLOWED_HOSTS = Set.of(
             "www.ispdados.rj.gov.br",
             "ispdados.rj.gov.br"
     );
 
     private final HttpClient httpClient;
     private final AppProperties appProperties;
+    private final Set<String> allowedHosts;
 
+    @Autowired
     public PortalHttpClient(AppProperties appProperties) {
         this.appProperties = appProperties;
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofMillis(appProperties.portal().connectTimeoutMs()))
                 .followRedirects(HttpClient.Redirect.NEVER)
                 .build();
+        this.allowedHosts = buildAllowedHosts(appProperties);
     }
 
     // Constructor for testing
     PortalHttpClient(HttpClient httpClient, AppProperties appProperties) {
         this.httpClient = httpClient;
         this.appProperties = appProperties;
+        this.allowedHosts = buildAllowedHosts(appProperties);
+    }
+
+    private static Set<String> buildAllowedHosts(AppProperties props) {
+        Set<String> hosts = new HashSet<>(DEFAULT_ALLOWED_HOSTS);
+        // Add hosts derived from configured URLs so test profiles work
+        addHostFromUrl(hosts, props.portal().csvUrl());
+        addHostFromUrl(hosts, props.portal().scrapingUrl());
+        return Set.copyOf(hosts);
+    }
+
+    private static void addHostFromUrl(Set<String> hosts, String url) {
+        try {
+            String host = URI.create(url).getHost();
+            if (host != null) {
+                hosts.add(host.toLowerCase());
+            }
+        } catch (Exception ignored) {
+            // Invalid URL in config — will fail at download time
+        }
     }
 
     public InputStream download(String url) {
@@ -81,8 +105,8 @@ public class PortalHttpClient {
 
         // SEC-DL-01: Whitelist allowed domains
         String host = uri.getHost();
-        if (host == null || !ALLOWED_HOSTS.contains(host.toLowerCase())) {
-            throw new PortalAccessException("Host not in whitelist: " + host + ". Allowed: " + ALLOWED_HOSTS);
+        if (host == null || !allowedHosts.contains(host.toLowerCase())) {
+            throw new PortalAccessException("Host not in whitelist: " + host + ". Allowed: " + allowedHosts);
         }
 
         // SEC-DL-03: Reject IP literals

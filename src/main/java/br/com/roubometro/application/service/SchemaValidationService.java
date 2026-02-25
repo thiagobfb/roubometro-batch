@@ -1,18 +1,18 @@
 package br.com.roubometro.application.service;
 
 import br.com.roubometro.domain.exception.SchemaValidationException;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
 import java.util.Set;
 
+@Slf4j
 @Service
+@RequiredArgsConstructor
 public class SchemaValidationService {
-
-    private static final Logger log = LoggerFactory.getLogger(SchemaValidationService.class);
 
     private static final Set<String> REQUIRED_MONTHLY_STATS_COLUMNS = Set.of(
             "id", "municipality_id", "year", "month", "category_id", "category_value", "source_file", "created_at"
@@ -23,10 +23,6 @@ public class SchemaValidationService {
     );
 
     private final JdbcTemplate jdbcTemplate;
-
-    public SchemaValidationService(JdbcTemplate jdbcTemplate) {
-        this.jdbcTemplate = jdbcTemplate;
-    }
 
     public void validate() {
         validateTable("monthly_stats", REQUIRED_MONTHLY_STATS_COLUMNS);

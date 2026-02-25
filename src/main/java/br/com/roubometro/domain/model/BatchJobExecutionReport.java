@@ -1,10 +1,17 @@
 package br.com.roubometro.domain.model;
 
 import jakarta.persistence.*;
+import lombok.*;
+
 import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "batch_job_execution_report")
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
 public class BatchJobExecutionReport {
 
     @Id
@@ -40,37 +47,4 @@ public class BatchJobExecutionReport {
 
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;
-
-    public Long getId() { return id; }
-    public void setId(Long id) { this.id = id; }
-
-    public Long getJobExecutionId() { return jobExecutionId; }
-    public void setJobExecutionId(Long jobExecutionId) { this.jobExecutionId = jobExecutionId; }
-
-    public Long getFileMetadataId() { return fileMetadataId; }
-    public void setFileMetadataId(Long fileMetadataId) { this.fileMetadataId = fileMetadataId; }
-
-    public String getStatus() { return status; }
-    public void setStatus(String status) { this.status = status; }
-
-    public int getRowsRead() { return rowsRead; }
-    public void setRowsRead(int rowsRead) { this.rowsRead = rowsRead; }
-
-    public int getRowsWritten() { return rowsWritten; }
-    public void setRowsWritten(int rowsWritten) { this.rowsWritten = rowsWritten; }
-
-    public int getRowsSkipped() { return rowsSkipped; }
-    public void setRowsSkipped(int rowsSkipped) { this.rowsSkipped = rowsSkipped; }
-
-    public int getRowsErrors() { return rowsErrors; }
-    public void setRowsErrors(int rowsErrors) { this.rowsErrors = rowsErrors; }
-
-    public Long getDurationMs() { return durationMs; }
-    public void setDurationMs(Long durationMs) { this.durationMs = durationMs; }
-
-    public String getErrorMessage() { return errorMessage; }
-    public void setErrorMessage(String errorMessage) { this.errorMessage = errorMessage; }
-
-    public LocalDateTime getCreatedAt() { return createdAt; }
-    public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
 }

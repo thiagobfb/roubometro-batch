@@ -3,8 +3,8 @@ package br.com.roubometro.application.service;
 import br.com.roubometro.config.AppProperties;
 import br.com.roubometro.domain.exception.FileDownloadException;
 import br.com.roubometro.infrastructure.client.PortalHttpClient;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
@@ -17,19 +17,15 @@ import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 import java.util.UUID;
 
+@Slf4j
 @Service
+@RequiredArgsConstructor
 public class FileDownloadService {
 
-    private static final Logger log = LoggerFactory.getLogger(FileDownloadService.class);
     private static final long MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB (SEC-DL-05)
 
     private final PortalHttpClient portalHttpClient;
     private final AppProperties appProperties;
-
-    public FileDownloadService(PortalHttpClient portalHttpClient, AppProperties appProperties) {
-        this.portalHttpClient = portalHttpClient;
-        this.appProperties = appProperties;
-    }
 
     public DownloadResult download(String url) {
         Path tempDir = Path.of(appProperties.batch().tempDir());

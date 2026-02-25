@@ -23,9 +23,9 @@ class MonthlyStatItemWriterIntegrationTest extends AbstractBatchIntegrationTest 
     @Test
     void writesStatsToDatabase() throws Exception {
         var stats = List.of(
-                new MonthlyStat(3300100L, (short) 2024, (byte) 1, 1L, 85, "test.csv"),
-                new MonthlyStat(3300100L, (short) 2024, (byte) 1, 2L, 3, "test.csv"),
-                new MonthlyStat(3300100L, (short) 2024, (byte) 1, 3L, 5, "test.csv")
+                MonthlyStat.builder().municipalityId(3300100L).year((short) 2024).month((byte) 1).categoryId(1L).categoryValue(85).sourceFile("test.csv").build(),
+                MonthlyStat.builder().municipalityId(3300100L).year((short) 2024).month((byte) 1).categoryId(2L).categoryValue(3).sourceFile("test.csv").build(),
+                MonthlyStat.builder().municipalityId(3300100L).year((short) 2024).month((byte) 1).categoryId(3L).categoryValue(5).sourceFile("test.csv").build()
         );
 
         monthlyStatJdbcWriter.write(new Chunk<>(stats));
@@ -40,12 +40,12 @@ class MonthlyStatItemWriterIntegrationTest extends AbstractBatchIntegrationTest 
     @Test
     void upsertUpdatesExistingValue() throws Exception {
         var initial = List.of(
-                new MonthlyStat(3304557L, (short) 2024, (byte) 2, 1L, 50, "v1.csv")
+                MonthlyStat.builder().municipalityId(3304557L).year((short) 2024).month((byte) 2).categoryId(1L).categoryValue(50).sourceFile("v1.csv").build()
         );
         monthlyStatJdbcWriter.write(new Chunk<>(initial));
 
         var updated = List.of(
-                new MonthlyStat(3304557L, (short) 2024, (byte) 2, 1L, 99, "v2.csv")
+                MonthlyStat.builder().municipalityId(3304557L).year((short) 2024).month((byte) 2).categoryId(1L).categoryValue(99).sourceFile("v2.csv").build()
         );
         monthlyStatJdbcWriter.write(new Chunk<>(updated));
 
@@ -65,7 +65,7 @@ class MonthlyStatItemWriterIntegrationTest extends AbstractBatchIntegrationTest 
     @Test
     void idempotentWrite() throws Exception {
         var stats = List.of(
-                new MonthlyStat(3303302L, (short) 2024, (byte) 3, 1L, 10, "same.csv")
+                MonthlyStat.builder().municipalityId(3303302L).year((short) 2024).month((byte) 3).categoryId(1L).categoryValue(10).sourceFile("same.csv").build()
         );
 
         monthlyStatJdbcWriter.write(new Chunk<>(stats));

@@ -1,24 +1,20 @@
 package br.com.roubometro.application.service;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
 import java.util.HashSet;
 import java.util.Set;
 
+@Slf4j
 @Service
+@RequiredArgsConstructor
 public class MunicipalityLookupService {
-
-    private static final Logger log = LoggerFactory.getLogger(MunicipalityLookupService.class);
 
     private final JdbcTemplate jdbcTemplate;
     private final Set<Long> validIds = new HashSet<>();
-
-    public MunicipalityLookupService(JdbcTemplate jdbcTemplate) {
-        this.jdbcTemplate = jdbcTemplate;
-    }
 
     public void initialize() {
         validIds.clear();

@@ -3,9 +3,8 @@ package br.com.roubometro.application.step;
 import br.com.roubometro.application.service.FileMetadataService;
 import br.com.roubometro.domain.model.BatchJobExecutionReport;
 import br.com.roubometro.infrastructure.repository.BatchJobExecutionReportRepository;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.batch.core.BatchStatus;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.batch.core.JobExecution;
 import org.springframework.batch.core.StepContribution;
 import org.springframework.batch.core.StepExecution;
@@ -19,24 +18,18 @@ import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.util.Collection;
 
+@Slf4j
 @Component
+@RequiredArgsConstructor
 public class FinalizationTasklet implements Tasklet {
-
-    private static final Logger log = LoggerFactory.getLogger(FinalizationTasklet.class);
 
     private final BatchJobExecutionReportRepository reportRepository;
     private final FileMetadataService fileMetadataService;
 
-    public FinalizationTasklet(
-            BatchJobExecutionReportRepository reportRepository,
-            FileMetadataService fileMetadataService
-    ) {
-        this.reportRepository = reportRepository;
-        this.fileMetadataService = fileMetadataService;
-    }
-
     @Override
     public RepeatStatus execute(StepContribution contribution, ChunkContext chunkContext) throws Exception {
+        log.info("FinalizationTasklet started");
+
         JobExecution jobExecution = chunkContext.getStepContext()
                 .getStepExecution().getJobExecution();
         var executionContext = jobExecution.getExecutionContext();
@@ -72,16 +65,17 @@ public class FinalizationTasklet implements Tasklet {
         String status = newFileAvailable ? "COMPLETED" : "SKIPPED";
 
         // Save report
-        BatchJobExecutionReport report = new BatchJobExecutionReport();
-        report.setJobExecutionId(jobExecution.getId());
-        report.setFileMetadataId(fileMetadataId > 0 ? fileMetadataId : null);
-        report.setStatus(status);
-        report.setRowsRead(rowsRead);
-        report.setRowsWritten(rowsWritten);
-        report.setRowsSkipped(rowsSkipped);
-        report.setRowsErrors(0);
-        report.setDurationMs(durationMs);
-        report.setCreatedAt(LocalDateTime.now());
+        BatchJobExecutionReport report = BatchJobExecutionReport.builder()
+                .jobExecutionId(jobExecution.getId())
+                .fileMetadataId(fileMetadataId > 0 ? fileMetadataId : null)
+                .status(status)
+                .rowsRead(rowsRead)
+                .rowsWritten(rowsWritten)
+                .rowsSkipped(rowsSkipped)
+                .rowsErrors(0)
+                .durationMs(durationMs)
+                .createdAt(LocalDateTime.now())
+                .build();
         reportRepository.save(report);
 
         // Mark file as processed

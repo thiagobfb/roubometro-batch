@@ -1,6 +1,7 @@
 package br.com.roubometro.infrastructure.writer;
 
 import br.com.roubometro.domain.model.MonthlyStat;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.batch.item.database.JdbcBatchItemWriter;
 import org.springframework.batch.item.database.builder.JdbcBatchItemWriterBuilder;
 import org.springframework.context.annotation.Bean;
@@ -8,6 +9,7 @@ import org.springframework.context.annotation.Configuration;
 
 import javax.sql.DataSource;
 
+@Slf4j
 @Configuration
 public class MonthlyStatItemWriterConfig {
 
@@ -21,10 +23,15 @@ public class MonthlyStatItemWriterConfig {
 
     @Bean
     public JdbcBatchItemWriter<MonthlyStat> monthlyStatJdbcWriter(DataSource dataSource) {
-        return new JdbcBatchItemWriterBuilder<MonthlyStat>()
+        log.info("Configuring MonthlyStat JDBC writer with UPSERT strategy");
+
+        JdbcBatchItemWriter<MonthlyStat> writer = new JdbcBatchItemWriterBuilder<MonthlyStat>()
                 .dataSource(dataSource)
                 .sql(UPSERT_SQL)
                 .beanMapped()
                 .build();
+
+        log.info("MonthlyStat JDBC writer configured successfully");
+        return writer;
     }
 }

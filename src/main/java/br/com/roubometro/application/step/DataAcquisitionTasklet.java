@@ -6,8 +6,8 @@ import br.com.roubometro.application.service.SchemaValidationService;
 import br.com.roubometro.config.AppProperties;
 import br.com.roubometro.domain.exception.PortalAccessException;
 import br.com.roubometro.domain.model.BatchFileMetadata;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.batch.core.StepContribution;
 import org.springframework.batch.core.scope.context.ChunkContext;
 import org.springframework.batch.core.step.tasklet.Tasklet;
@@ -16,34 +16,25 @@ import org.springframework.stereotype.Component;
 
 import java.nio.file.Files;
 
+@Slf4j
 @Component
+@RequiredArgsConstructor
 public class DataAcquisitionTasklet implements Tasklet {
-
-    private static final Logger log = LoggerFactory.getLogger(DataAcquisitionTasklet.class);
 
     private final FileDownloadService fileDownloadService;
     private final FileMetadataService fileMetadataService;
     private final SchemaValidationService schemaValidationService;
     private final AppProperties appProperties;
 
-    public DataAcquisitionTasklet(
-            FileDownloadService fileDownloadService,
-            FileMetadataService fileMetadataService,
-            SchemaValidationService schemaValidationService,
-            AppProperties appProperties
-    ) {
-        this.fileDownloadService = fileDownloadService;
-        this.fileMetadataService = fileMetadataService;
-        this.schemaValidationService = schemaValidationService;
-        this.appProperties = appProperties;
-    }
-
     @Override
     public RepeatStatus execute(StepContribution contribution, ChunkContext chunkContext) throws Exception {
+        log.info("DataAcquisitionTasklet started");
+
         var executionContext = chunkContext.getStepContext()
                 .getStepExecution().getJobExecution().getExecutionContext();
 
         // Validate schema before downloading
+        log.debug("Validating database schema...");
         schemaValidationService.validate();
 
         String csvUrl = appProperties.portal().csvUrl();
@@ -78,6 +69,7 @@ public class DataAcquisitionTasklet implements Tasklet {
             log.info("File unchanged (same hash), skipping processing: hash={}", result.fileHash());
         }
 
+        log.info("DataAcquisitionTasklet finished");
         return RepeatStatus.FINISHED;
     }
 
