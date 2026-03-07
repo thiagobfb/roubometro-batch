@@ -5,8 +5,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @ConfigurationProperties(prefix = "roubometro")
 public record AppProperties(
         PortalProperties portal,
-        BatchProperties batch,
-        ScheduleProperties schedule
+        BatchProperties batch
 ) {
     public record PortalProperties(
             String csvUrl,
@@ -26,8 +25,4 @@ public record AppProperties(
             boolean includeZeroValues
     ) {}
 
-    public record ScheduleProperties(
-            String cron,
-            boolean enabled
-    ) {}
 }

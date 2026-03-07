@@ -2,7 +2,7 @@
 
 > **Publico-alvo**: desenvolvedor com conta AWS criada, familiaridade basica com o console, primeiro deploy real.
 >
-> **Objetivo**: colocar o roubometro-batch rodando na AWS como tarefa agendada (cron), conectando ao banco MySQL existente (Locaweb ou outro hosting externo).
+> **Objetivo**: colocar o roubometro-batch rodando na AWS como tarefa agendada via EventBridge Scheduler (sem cron interno), conectando ao banco MySQL existente (Locaweb ou outro hosting externo).
 >
 > **Tempo estimado**: 2-3 horas na primeira vez.
 
@@ -110,20 +110,20 @@ Resposta (anote o `repositoryUri`):
 ```json
 {
     "repository": {
-        "repositoryUri": "123456789012.dkr.ecr.us-east-1.amazonaws.com/roubometro-batch",
+        "repositoryUri": "SEU_ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/roubometro-batch",
         ...
     }
 }
 ```
 
-> **O que e `repositoryUri`?** E o endereco da sua imagem na AWS. Voce vai usar esse valor em varios passos. Substitua `123456789012` pelo seu Account ID real (12 digitos, aparece no canto superior direito do console AWS).
+> **O que e `repositoryUri`?** E o endereco da sua imagem na AWS. Voce vai usar esse valor em varios passos. Substitua `SEU_ACCOUNT_ID` pelo seu Account ID real (12 digitos, aparece no canto superior direito do console AWS).
 
 ### 1.2 Fazer login no ECR
 
 ```bash
 aws ecr get-login-password --region us-east-1 | \
   docker login --username AWS --password-stdin \
-  123456789012.dkr.ecr.us-east-1.amazonaws.com
+  SEU_ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com
 ```
 
 Resultado esperado: `Login Succeeded`
@@ -141,10 +141,10 @@ docker build -t roubometro-batch .
 
 # Taguear para o ECR
 docker tag roubometro-batch:latest \
-  123456789012.dkr.ecr.us-east-1.amazonaws.com/roubometro-batch:latest
+  SEU_ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/roubometro-batch:latest
 
 # Enviar para o ECR (push)
-docker push 123456789012.dkr.ecr.us-east-1.amazonaws.com/roubometro-batch:latest
+docker push SEU_ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/roubometro-batch:latest
 ```
 
 > **Primeira vez**: o push pode demorar alguns minutos (a imagem tem ~200 MB). Pushes seguintes sao incrementais e rapidos.
@@ -181,7 +181,7 @@ aws secretsmanager create-secret \
 A resposta contem um `ARN` (Amazon Resource Name). Anote-o:
 
 ```
-arn:aws:secretsmanager:us-east-1:123456789012:secret:roubometro-batch/db-credentials-AbCdEf
+arn:aws:secretsmanager:us-east-1:SEU_ACCOUNT_ID:secret:roubometro-batch/db-credentials-XXXXXX
 ```
 
 > **O que e ARN?** E o identificador unico de qualquer recurso na AWS. Funciona como um "caminho absoluto" para o recurso.
@@ -245,7 +245,7 @@ cat > /tmp/secrets-policy.json << 'EOF'
       "Action": [
         "secretsmanager:GetSecretValue"
       ],
-      "Resource": "arn:aws:secretsmanager:us-east-1:123456789012:secret:roubometro-batch/*"
+      "Resource": "arn:aws:secretsmanager:us-east-1:SEU_ACCOUNT_ID:secret:roubometro-batch/*"
     }
   ]
 }
@@ -257,7 +257,7 @@ aws iam put-role-policy \
   --policy-document file:///tmp/secrets-policy.json
 ```
 
-> **Substitua** `123456789012` pelo seu Account ID.
+> **Substitua** `SEU_ACCOUNT_ID` pelo seu Account ID.
 
 ---
 
@@ -300,22 +300,22 @@ cat > /tmp/ecs-task-definition.json << 'TASKEOF'
   "requiresCompatibilities": ["FARGATE"],
   "cpu": "512",
   "memory": "1024",
-  "executionRoleArn": "arn:aws:iam::123456789012:role/roubometro-batch-execution-role",
+  "executionRoleArn": "arn:aws:iam::SEU_ACCOUNT_ID:role/roubometro-batch-execution-role",
   "containerDefinitions": [
     {
       "name": "roubometro-batch",
-      "image": "123456789012.dkr.ecr.us-east-1.amazonaws.com/roubometro-batch:latest",
+      "image": "SEU_ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/roubometro-batch:latest",
       "essential": true,
       "environment": [
         { "name": "SPRING_PROFILES_ACTIVE", "value": "prod" },
         { "name": "JAVA_OPTS", "value": "-Xmx768m -Xms256m" }
       ],
       "secrets": [
-        { "name": "DB_HOST",     "valueFrom": "arn:aws:secretsmanager:us-east-1:123456789012:secret:roubometro-batch/db-credentials-AbCdEf:DB_HOST::" },
-        { "name": "DB_PORT",     "valueFrom": "arn:aws:secretsmanager:us-east-1:123456789012:secret:roubometro-batch/db-credentials-AbCdEf:DB_PORT::" },
-        { "name": "DB_NAME",     "valueFrom": "arn:aws:secretsmanager:us-east-1:123456789012:secret:roubometro-batch/db-credentials-AbCdEf:DB_NAME::" },
-        { "name": "DB_USER",     "valueFrom": "arn:aws:secretsmanager:us-east-1:123456789012:secret:roubometro-batch/db-credentials-AbCdEf:DB_USER::" },
-        { "name": "DB_PASSWORD", "valueFrom": "arn:aws:secretsmanager:us-east-1:123456789012:secret:roubometro-batch/db-credentials-AbCdEf:DB_PASSWORD::" }
+        { "name": "DB_HOST",     "valueFrom": "arn:aws:secretsmanager:us-east-1:SEU_ACCOUNT_ID:secret:roubometro-batch/db-credentials-XXXXXX:DB_HOST::" },
+        { "name": "DB_PORT",     "valueFrom": "arn:aws:secretsmanager:us-east-1:SEU_ACCOUNT_ID:secret:roubometro-batch/db-credentials-XXXXXX:DB_PORT::" },
+        { "name": "DB_NAME",     "valueFrom": "arn:aws:secretsmanager:us-east-1:SEU_ACCOUNT_ID:secret:roubometro-batch/db-credentials-XXXXXX:DB_NAME::" },
+        { "name": "DB_USER",     "valueFrom": "arn:aws:secretsmanager:us-east-1:SEU_ACCOUNT_ID:secret:roubometro-batch/db-credentials-XXXXXX:DB_USER::" },
+        { "name": "DB_PASSWORD", "valueFrom": "arn:aws:secretsmanager:us-east-1:SEU_ACCOUNT_ID:secret:roubometro-batch/db-credentials-XXXXXX:DB_PASSWORD::" }
       ],
       "logConfiguration": {
         "logDriver": "awslogs",
@@ -364,16 +364,16 @@ aws ec2 describe-vpcs --filters "Name=isDefault,Values=true" \
   --query "Vpcs[0].VpcId" --output text
 ```
 
-Anote o VPC ID (ex: `vpc-0abc123def456`).
+Anote o VPC ID (ex: `SEU_VPC_ID`).
 
 ```bash
 # Listar subnets publicas da VPC default
 aws ec2 describe-subnets \
-  --filters "Name=vpc-id,Values=vpc-0abc123def456" "Name=default-for-az,Values=true" \
+  --filters "Name=vpc-id,Values=SEU_VPC_ID" "Name=default-for-az,Values=true" \
   --query "Subnets[*].[SubnetId,AvailabilityZone]" --output table
 ```
 
-Anote pelo menos **uma** Subnet ID (ex: `subnet-0abc123`).
+Anote pelo menos **uma** Subnet ID (ex: `SEU_SUBNET_ID`).
 
 > **O que e VPC?** Virtual Private Cloud — e a rede virtual privada da sua conta. Tudo que roda na AWS vive dentro de uma VPC.
 >
@@ -390,10 +390,10 @@ O Security Group funciona como um firewall. O batch precisa de:
 aws ec2 create-security-group \
   --group-name roubometro-batch-sg \
   --description "Security Group para roubometro-batch (somente saida)" \
-  --vpc-id vpc-0abc123def456
+  --vpc-id SEU_VPC_ID
 ```
 
-Anote o Security Group ID (ex: `sg-0abc123`).
+Anote o Security Group ID (ex: `SEU_SG_ID`).
 
 > **Por padrao**, Security Groups na AWS ja permitem todo trafego de saida (egress) e bloqueiam todo trafego de entrada (ingress). Isso e exatamente o que precisamos — nao e necessario adicionar nenhuma regra extra.
 
@@ -410,8 +410,8 @@ aws ecs run-task \
   --launch-type FARGATE \
   --network-configuration '{
     "awsvpcConfiguration": {
-      "subnets": ["subnet-0abc123"],
-      "securityGroups": ["sg-0abc123"],
+      "subnets": ["SEU_SUBNET_ID"],
+      "securityGroups": ["SEU_SG_ID"],
       "assignPublicIp": "ENABLED"
     }
   }'
@@ -494,12 +494,12 @@ cat > /tmp/ecs-run-policy.json << 'EOF'
     {
       "Effect": "Allow",
       "Action": "ecs:RunTask",
-      "Resource": "arn:aws:ecs:us-east-1:123456789012:task-definition/roubometro-batch:*"
+      "Resource": "arn:aws:ecs:us-east-1:SEU_ACCOUNT_ID:task-definition/roubometro-batch:*"
     },
     {
       "Effect": "Allow",
       "Action": "iam:PassRole",
-      "Resource": "arn:aws:iam::123456789012:role/roubometro-batch-execution-role"
+      "Resource": "arn:aws:iam::SEU_ACCOUNT_ID:role/roubometro-batch-execution-role"
     }
   ]
 }
@@ -515,21 +515,21 @@ aws iam put-role-policy \
 
 ```bash
 aws scheduler create-schedule \
-  --name roubometro-batch-weekly \
-  --schedule-expression "cron(0 6 ? * MON *)" \
+  --name roubometro-batch-biweekly \
+  --schedule-expression "cron(0 3 ? * SUN *)" \
   --schedule-expression-timezone "America/Sao_Paulo" \
   --flexible-time-window '{"Mode": "OFF"}' \
   --target '{
-    "Arn": "arn:aws:ecs:us-east-1:123456789012:cluster/roubometro",
-    "RoleArn": "arn:aws:iam::123456789012:role/roubometro-batch-scheduler-role",
+    "Arn": "arn:aws:ecs:us-east-1:SEU_ACCOUNT_ID:cluster/roubometro",
+    "RoleArn": "arn:aws:iam::SEU_ACCOUNT_ID:role/roubometro-batch-scheduler-role",
     "EcsParameters": {
-      "TaskDefinitionArn": "arn:aws:ecs:us-east-1:123456789012:task-definition/roubometro-batch",
+      "TaskDefinitionArn": "arn:aws:ecs:us-east-1:SEU_ACCOUNT_ID:task-definition/roubometro-batch",
       "TaskCount": 1,
       "LaunchType": "FARGATE",
       "NetworkConfiguration": {
         "AwsvpcConfiguration": {
-          "Subnets": ["subnet-0abc123"],
-          "SecurityGroups": ["sg-0abc123"],
+          "Subnets": ["SEU_SUBNET_ID"],
+          "SecurityGroups": ["SEU_SG_ID"],
           "AssignPublicIp": "ENABLED"
         }
       }
@@ -537,15 +537,18 @@ aws scheduler create-schedule \
   }'
 ```
 
-> **`cron(0 6 ? * MON *)`** = toda segunda-feira as 6h (horario de Sao Paulo).
+> **`cron(0 3 ? * SUN *)`** = todo domingo as 3h da manha (horario de Sao Paulo).
 >
-> **Por que semanal e nao diario?** O CSV do ISP-RJ e atualizado mensalmente. Rodar semanalmente captura atualizacoes com no maximo 7 dias de atraso, sem gasto desnecessario. O batch verifica o hash do arquivo e so processa se houver mudanca.
+> **Por que semanal e nao quinzenal?** O cron padrao nao suporta "a cada 2 semanas" nativamente. Opcoes:
 >
-> Se preferir **diario** (como no cron original `0 0 3 * * *`), troque para:
-> ```
-> "cron(0 3 * * ? *)"
-> ```
-> O custo adicional e desprezivel (~$0.01/execucao x 30 dias = ~$0.30/mes).
+> | Opcao | Expressao | Comportamento |
+> |-------|-----------|---------------|
+> | **Semanal (recomendado)** | `cron(0 3 ? * SUN *)` | Todo domingo 3h. Custo extra: ~$0.04/mes |
+> | Quinzenal aproximado | `rate(14 days)` | A cada 14 dias, mas nao garante cair no domingo |
+>
+> **Recomendacao**: use semanal. O batch e idempotente — se nao houver dados novos, termina em segundos sem custo significativo. A diferenca de custo entre semanal e quinzenal e ~$0.04/mes (4 execucoes vs 2).
+>
+> **Por que domingo 3h?** Horario de baixa atividade, menor chance de conflito com outros processos, e o CSV do ISP-RJ e atualizado durante a semana.
 
 ### 7.3 Verificar no console
 
@@ -569,7 +572,7 @@ aws sns create-topic --name roubometro-batch-alerts
 
 # Inscrever seu e-mail (voce recebera um e-mail de confirmacao)
 aws sns subscribe \
-  --topic-arn arn:aws:sns:us-east-1:123456789012:roubometro-batch-alerts \
+  --topic-arn arn:aws:sns:us-east-1:SEU_ACCOUNT_ID:roubometro-batch-alerts \
   --protocol email \
   --notification-endpoint seu-email@example.com
 ```
@@ -590,7 +593,7 @@ aws cloudwatch put-metric-alarm \
   --threshold 1 \
   --comparison-operator GreaterThanOrEqualToThreshold \
   --evaluation-periods 1 \
-  --alarm-actions arn:aws:sns:us-east-1:123456789012:roubometro-batch-alerts
+  --alarm-actions arn:aws:sns:us-east-1:SEU_ACCOUNT_ID:roubometro-batch-alerts
 ```
 
 ---
@@ -608,10 +611,10 @@ docker build -t roubometro-batch .
 
 # 3. Taguear e enviar para o ECR
 docker tag roubometro-batch:latest \
-  123456789012.dkr.ecr.us-east-1.amazonaws.com/roubometro-batch:latest
+  SEU_ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/roubometro-batch:latest
 
 docker push \
-  123456789012.dkr.ecr.us-east-1.amazonaws.com/roubometro-batch:latest
+  SEU_ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/roubometro-batch:latest
 
 # 4. (Opcional) Forcar uma execucao imediata para testar
 aws ecs run-task \
@@ -620,8 +623,8 @@ aws ecs run-task \
   --launch-type FARGATE \
   --network-configuration '{
     "awsvpcConfiguration": {
-      "subnets": ["subnet-0abc123"],
-      "securityGroups": ["sg-0abc123"],
+      "subnets": ["SEU_SUBNET_ID"],
+      "securityGroups": ["SEU_SG_ID"],
       "assignPublicIp": "ENABLED"
     }
   }'
@@ -635,33 +638,211 @@ aws ecs run-task \
 
 Anote esses valores para referencia. Eles sao necessarios para futuras operacoes:
 
-| Recurso | Valor | Onde usar |
-|---------|-------|-----------|
-| **Account ID** | `123456789012` | Em todos os ARNs |
-| **ECR Repository URI** | `123456789012.dkr.ecr.us-east-1.amazonaws.com/roubometro-batch` | Push/pull de imagens |
-| **Secret ARN** | `arn:aws:secretsmanager:us-east-1:123456789012:secret:roubometro-batch/db-credentials-AbCdEf` | Task definition |
-| **VPC ID** | `vpc-0abc123def456` | Security Group |
-| **Subnet ID** | `subnet-0abc123` | Task execution |
-| **Security Group ID** | `sg-0abc123` | Task execution |
-| **Cluster Name** | `roubometro` | Todos os comandos ECS |
-| **Execution Role ARN** | `arn:aws:iam::123456789012:role/roubometro-batch-execution-role` | Task definition |
-| **Scheduler Role ARN** | `arn:aws:iam::123456789012:role/roubometro-batch-scheduler-role` | EventBridge |
-| **Log Group** | `/ecs/roubometro-batch` | CloudWatch |
-| **Schedule Name** | `roubometro-batch-weekly` | EventBridge |
+| Recurso | Valor | Onde usar | Status |
+|---------|-------|-----------|--------|
+| **Account ID** | `SEU_ACCOUNT_ID` | Em todos os ARNs | ✅ |
+| **ECR Repository URI** | `SEU_ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/roubometro-batch` | Push/pull de imagens | ✅ (imagem `latest`) |
+| **Secret ARN** | `arn:aws:secretsmanager:us-east-1:SEU_ACCOUNT_ID:secret:roubometro-batch/db-credentials-XXXXXX` | Task definition | ✅ |
+| **VPC ID** | `SEU_VPC_ID` | Security Group | ✅ |
+| **Subnet ID** | `SEU_SUBNET_ID` (us-east-1a) | Task execution | ✅ |
+| **Security Group ID** | `SEU_SG_ID` | Task execution | ✅ |
+| **Cluster Name** | `roubometro` | Todos os comandos ECS | ✅ (ACTIVE) |
+| **Task Definition** | `roubometro-batch` rev.2 | ECS run-task | ✅ (ACTIVE) |
+| **Execution Role ARN** | `arn:aws:iam::SEU_ACCOUNT_ID:role/roubometro-batch-execution-role` | Task definition | ✅ |
+| **Scheduler Role ARN** | `arn:aws:iam::SEU_ACCOUNT_ID:role/roubometro-batch-scheduler-role` | EventBridge | ✅ |
+| **Log Group** | `/ecs/roubometro-batch` | CloudWatch | ✅ |
+| **Schedule Name** | `roubometro-batch-biweekly` | EventBridge | ❌ Nao criado |
 
 ---
 
 ## Checklist final
 
-- [ ] **ECR**: imagem `roubometro-batch:latest` enviada
-- [ ] **Secrets Manager**: credenciais do banco armazenadas
-- [ ] **IAM**: execution role com permissoes para ECR + Secrets Manager + CloudWatch
-- [ ] **ECS**: cluster `roubometro` criado, task definition registrada
-- [ ] **Rede**: VPC, subnet e security group configurados
+- [x] **ECR**: imagem `roubometro-batch:latest` enviada
+- [x] **Secrets Manager**: credenciais do banco armazenadas
+- [x] **IAM**: execution role com permissoes para ECR + Secrets Manager + CloudWatch
+- [x] **ECS**: cluster `roubometro` criado, task definition registrada (rev.2)
+- [x] **Rede**: VPC, subnet e security group configurados
 - [ ] **Teste manual**: `run-task` executado com sucesso, logs mostram `COMPLETED`
-- [ ] **EventBridge**: schedule `roubometro-batch-weekly` criado
+- [ ] **EventBridge**: schedule `roubometro-batch-biweekly` criado
 - [ ] **Monitoramento**: alerta SNS para falhas (opcional)
 - [ ] **Banco**: `monthly_stats` com dados apos a primeira execucao
+
+---
+
+## Por que EventBridge + Fargate e mais barato que aplicacao 24/7
+
+Esta arquitetura usa o modelo **"on-demand"**: o container so existe enquanto o job esta rodando.
+
+### Comparacao de custos mensais
+
+| Arquitetura | Como funciona | Custo mensal |
+|-------------|---------------|--------------|
+| **EventBridge + Fargate (este guia)** | Container inicia, executa job (~2 min), morre | **~$0.08 - $0.15** |
+| EC2 t3.micro 24/7 | VM rodando o tempo todo, job executa via cron | **~$8.50** |
+| ECS Service (always running) | Container rodando 24/7 esperando o scheduler | **~$15.00** |
+| Lambda (se o job coubesse em 15 min) | Funcao serverless | **~$0.02** |
+
+### Por que a diferenca e tao grande?
+
+1. **Tempo de execucao**: O batch roda ~2 minutos por semana. Em um mes, sao ~8 minutos de computacao.
+
+2. **Modelo de cobranca do Fargate**:
+   - Cobra por **segundo** de uso
+   - 0.5 vCPU + 1 GB RAM = ~$0.03/hora
+   - 8 minutos/mes = ~$0.004 de Fargate
+   - O resto do custo vem de CloudWatch Logs (~$0.10) e Secrets Manager (~$0.40)
+
+3. **EC2/ECS 24/7**: Paga mesmo quando nao esta fazendo nada
+   - 720 horas/mes x $0.0116/hora (t3.micro) = $8.35
+   - Voce paga 720 horas para usar 0.13 horas (8 min)
+
+### Recomendacao
+
+Para jobs batch que rodam periodicamente (diario, semanal, mensal):
+- **Use EventBridge + Fargate** (ou Lambda se couber em 15 min)
+- **Nunca** mantenha um servidor/container rodando 24/7 so para executar um cron
+
+> **Analogia**: E como alugar um carro so para as horas que voce usa, vs comprar um carro que fica 99% do tempo parado na garagem.
+
+---
+
+## Troubleshooting — Problemas comuns e solucoes
+
+Esta secao documenta problemas reais encontrados durante o deploy e como resolve-los.
+
+### 1. Container nao consegue conectar ao MySQL externo
+
+**Sintoma**: Logs mostram `Communications link failure` ou `Connection timed out`
+
+**Causas possiveis**:
+
+| Causa | Como verificar | Solucao |
+|-------|---------------|---------|
+| Security Group bloqueando saida | Verificar regras de egress do SG | SG default permite todo egress. Se customizou, adicione regra para porta 3306 |
+| Subnet sem internet | Task fica PENDING ou falha ao iniciar | Use subnet publica com `assignPublicIp: ENABLED` |
+| Hosting bloqueia IPs externos | Tente conectar do seu PC | Liberar range de IPs da AWS ou usar IP fixo (NAT Gateway) |
+| Firewall do hosting | Contatar suporte do hosting | Pedir liberacao da porta 3306 para conexoes externas |
+
+**Teste de conectividade** (rodar localmente):
+```bash
+# Verificar se a porta esta acessivel
+nc -zv seu-host-mysql.com 3306
+
+# Testar conexao MySQL
+mysql -h seu-host-mysql.com -u usuario -p -e "SELECT 1;"
+```
+
+### 2. Erro de SSL/TLS com MySQL
+
+**Sintoma**: `SSL connection error` ou `unable to find valid certification path`
+
+**Causa**: MySQL externo exige SSL mas o certificado nao e reconhecido
+
+**Solucao**: No `application-prod.yml`, a URL ja esta configurada com:
+```
+useSSL=true&requireSSL=true&verifyServerCertificate=false
+```
+
+Se ainda falhar, verificar se o hosting suporta SSL. Alguns hostings baratos nao suportam.
+
+### 3. Task ECS falha com "CannotPullContainerError"
+
+**Sintoma**: Task vai para STOPPED com erro de pull da imagem
+
+**Causas e solucoes**:
+
+| Causa | Solucao |
+|-------|---------|
+| Imagem nao existe no ECR | Verificar nome/tag: `aws ecr describe-images --repository-name roubometro-batch` |
+| Execution Role sem permissao ECR | Anexar policy `AmazonECSTaskExecutionRolePolicy` a role |
+| ECR em regiao diferente | Usar o mesmo region no ECR e ECS |
+
+### 4. Secrets nao sao injetados no container
+
+**Sintoma**: Aplicacao falha com `DB_HOST is null` ou similar
+
+**Causas e solucoes**:
+
+| Causa | Solucao |
+|-------|---------|
+| ARN do secret incorreto na task definition | Copiar ARN exato: `aws secretsmanager describe-secret --secret-id roubometro-batch/db-credentials` |
+| Formato do valueFrom incorreto | Deve ser `ARN:campo::` (com dois-pontos no final) |
+| Execution Role sem permissao | Verificar policy `SecretsManagerAccess` na role |
+
+**Formato correto do secret na task definition**:
+```json
+{
+  "name": "DB_HOST",
+  "valueFrom": "arn:aws:secretsmanager:us-east-1:SEU_ACCOUNT_ID:secret:roubometro-batch/db-credentials-XXXXXX:DB_HOST::"
+}
+```
+
+### 5. Job executa mas nao insere dados
+
+**Sintoma**: Logs mostram `COMPLETED` mas tabela `monthly_stats` esta vazia
+
+**Causas e solucoes**:
+
+| Causa | Solucao |
+|-------|---------|
+| Municipios nao cadastrados | Rodar seed: `mysql < docker/init-db/02_seed_data.sql` |
+| Categorias nao cadastradas | Verificar tabela `categories` |
+| CSV vazio ou URL mudou | Verificar `roubometro.portal.csv-url` no application.yml |
+| Job ja rodou com esse arquivo | Verificar `batch_file_metadata` — batch e idempotente |
+
+### 6. EventBridge nao dispara a task
+
+**Sintoma**: Schedule existe mas task nunca executa
+
+**Causas e solucoes**:
+
+| Causa | Solucao |
+|-------|---------|
+| Schedule desabilitado | `aws scheduler get-schedule --name roubometro-batch-biweekly` — verificar `State` |
+| Role sem permissao ecs:RunTask | Verificar policy na `roubometro-batch-scheduler-role` |
+| Role sem permissao iam:PassRole | Adicionar permissao para passar a execution role |
+| Timezone incorreto | Verificar `ScheduleExpressionTimezone` |
+
+**Verificar proxima execucao**:
+```bash
+aws scheduler get-schedule --name roubometro-batch-biweekly \
+  --query "[State, ScheduleExpression, ScheduleExpressionTimezone]"
+```
+
+### 7. Logs nao aparecem no CloudWatch
+
+**Sintoma**: Task executa mas `/ecs/roubometro-batch` esta vazio
+
+**Causas e solucoes**:
+
+| Causa | Solucao |
+|-------|---------|
+| Log group nao existe | `aws logs create-log-group --log-group-name /ecs/roubometro-batch` |
+| Execution Role sem permissao logs | Policy `AmazonECSTaskExecutionRolePolicy` ja inclui isso |
+| Container crashou antes de logar | Verificar eventos da task no console ECS |
+
+### 8. Custo inesperado na fatura AWS
+
+**Sintoma**: Cobranca maior que o esperado (~$2/mes)
+
+**Onde verificar**:
+```bash
+# Listar recursos que podem gerar custo
+
+# RDS (se criou para teste e esqueceu de destruir)
+aws rds describe-db-instances --query "DBInstances[*].[DBInstanceIdentifier,DBInstanceStatus]"
+
+# NAT Gateway (caro! ~$32/mes)
+aws ec2 describe-nat-gateways --query "NatGateways[*].[NatGatewayId,State]"
+
+# Elastic IPs nao associados (~$3.65/mes cada)
+aws ec2 describe-addresses --query "Addresses[?AssociationId==null]"
+
+# Snapshots RDS
+aws rds describe-db-snapshots --query "DBSnapshots[*].[DBSnapshotIdentifier,AllocatedStorage]"
+```
+
+**Dica**: Use o **AWS Cost Explorer** para ver o breakdown por servico.
 
 ---
 
@@ -682,6 +863,63 @@ Anote esses valores para referencia. Eles sao necessarios para futuras operacoes
 | **Secrets Manager** | Cofre digital para senhas e chaves |
 | **SNS** | Simple Notification Service — envia notificacoes (e-mail, SMS, etc.) |
 | **Free Tier** | Nivel gratuito da AWS para novos usuarios (12 meses para a maioria dos servicos) |
+
+---
+
+## Sobre o agendamento (cron interno vs EventBridge)
+
+A aplicacao **nao possui cron interno** (`@Scheduled` foi removido). O batch segue o modelo **"run and die"**:
+
+1. O container inicia
+2. O Spring Boot roda o job automaticamente (`spring.batch.job.enabled: true` no profile `prod`)
+3. O job executa (download CSV → processamento → gravacao no banco)
+4. O container encerra
+
+O agendamento e responsabilidade **exclusiva da AWS** via **EventBridge Scheduler** (configurado no Passo 7). Isso significa:
+
+- **Nao ha processo rodando 24/7** esperando o horario do cron
+- **Custo minimo**: paga apenas pelos ~2 minutos de execucao
+- **Facil de alterar**: mude o schedule no EventBridge sem rebuild/deploy da aplicacao
+- **Execucao manual**: a qualquer momento via `aws ecs run-task` (Passo 6)
+
+### Alterar a frequencia de execucao
+
+Para mudar o horario ou frequencia, atualize o schedule no EventBridge:
+
+```bash
+aws scheduler update-schedule \
+  --name roubometro-batch-biweekly \
+  --schedule-expression "cron(0 3 ? * SUN *)" \
+  --schedule-expression-timezone "America/Sao_Paulo" \
+  --flexible-time-window '{"Mode": "OFF"}' \
+  --target '{
+    "Arn": "arn:aws:ecs:us-east-1:SEU_ACCOUNT_ID:cluster/roubometro",
+    "RoleArn": "arn:aws:iam::SEU_ACCOUNT_ID:role/roubometro-batch-scheduler-role",
+    "EcsParameters": {
+      "TaskDefinitionArn": "arn:aws:ecs:us-east-1:SEU_ACCOUNT_ID:task-definition/roubometro-batch",
+      "TaskCount": 1,
+      "LaunchType": "FARGATE",
+      "NetworkConfiguration": {
+        "AwsvpcConfiguration": {
+          "Subnets": ["SUA_SUBNET_ID"],
+          "SecurityGroups": ["SEU_SG_ID"],
+          "AssignPublicIp": "ENABLED"
+        }
+      }
+    }
+  }'
+```
+
+Exemplos de expressoes cron do EventBridge:
+
+| Frequencia | Expressao | Descricao |
+|------------|-----------|-----------|
+| Semanal (domingo 3h) | `cron(0 3 ? * SUN *)` | Recomendado |
+| Diario (3h) | `cron(0 3 * * ? *)` | Para testes |
+| Mensal (dia 1, 3h) | `cron(0 3 1 * ? *)` | Economia maxima |
+| A cada 14 dias | `rate(14 days)` | Nao garante dia da semana |
+
+> **Nota**: o batch e idempotente — rodar varias vezes com o mesmo CSV nao duplica dados. Portanto, aumentar a frequencia nao causa problemas, apenas custo marginalmente maior (~$0.02 por execucao extra).
 
 ---
 

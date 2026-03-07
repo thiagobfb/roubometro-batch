@@ -107,7 +107,7 @@ cat > /tmp/github-oidc-trust.json << 'EOF'
     {
       "Effect": "Allow",
       "Principal": {
-        "Federated": "arn:aws:iam::123456789012:oidc-provider/token.actions.githubusercontent.com"
+        "Federated": "arn:aws:iam::SEU_ACCOUNT_ID:oidc-provider/token.actions.githubusercontent.com"
       },
       "Action": "sts:AssumeRoleWithWebIdentity",
       "Condition": {
@@ -157,7 +157,7 @@ cat > /tmp/github-actions-policy.json << 'EOF'
         "ecr:UploadLayerPart",
         "ecr:CompleteLayerUpload"
       ],
-      "Resource": "arn:aws:ecr:us-east-1:123456789012:repository/roubometro-batch"
+      "Resource": "arn:aws:ecr:us-east-1:SEU_ACCOUNT_ID:repository/roubometro-batch"
     },
     {
       "Sid": "ECSRunTask",
@@ -166,13 +166,13 @@ cat > /tmp/github-actions-policy.json << 'EOF'
         "ecs:RunTask",
         "ecs:DescribeTasks"
       ],
-      "Resource": "arn:aws:ecs:us-east-1:123456789012:task-definition/roubometro-batch:*"
+      "Resource": "arn:aws:ecs:us-east-1:SEU_ACCOUNT_ID:task-definition/roubometro-batch:*"
     },
     {
       "Sid": "PassRole",
       "Effect": "Allow",
       "Action": "iam:PassRole",
-      "Resource": "arn:aws:iam::123456789012:role/roubometro-batch-execution-role"
+      "Resource": "arn:aws:iam::SEU_ACCOUNT_ID:role/roubometro-batch-execution-role"
     }
   ]
 }
@@ -191,7 +191,7 @@ aws iam get-role --role-name github-actions-roubometro-batch \
   --query "Role.Arn" --output text
 ```
 
-Resultado (anote): `arn:aws:iam::123456789012:role/github-actions-roubometro-batch`
+Resultado (anote): `arn:aws:iam::SEU_ACCOUNT_ID:role/github-actions-roubometro-batch`
 
 ---
 
@@ -207,8 +207,8 @@ O workflow precisa saber alguns valores especificos da sua conta AWS. Vamos salv
 
 | Nome do Secret | Valor | Exemplo |
 |----------------|-------|---------|
-| `AWS_ACCOUNT_ID` | Seu Account ID (12 digitos) | `123456789012` |
-| `AWS_ROLE_ARN` | ARN da role criada no Passo 1 | `arn:aws:iam::123456789012:role/github-actions-roubometro-batch` |
+| `AWS_ACCOUNT_ID` | Seu Account ID (12 digitos) | `SEU_ACCOUNT_ID` |
+| `AWS_ROLE_ARN` | ARN da role criada no Passo 1 | `arn:aws:iam::SEU_ACCOUNT_ID:role/github-actions-roubometro-batch` |
 | `ECS_SUBNET` | Subnet ID (do AWS-DEPLOY-GUIDE) | `subnet-0abc123` |
 | `ECS_SECURITY_GROUP` | Security Group ID | `sg-0abc123` |
 

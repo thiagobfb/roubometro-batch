@@ -41,9 +41,6 @@ roubometro:
     csv-encoding: ISO-8859-1
     csv-delimiter: ";"
     include-zero-values: false
-  schedule:
-    cron: "-"
-    enabled: false
 
 logging:
   level:

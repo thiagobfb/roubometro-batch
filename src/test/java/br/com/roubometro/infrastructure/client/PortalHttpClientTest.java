@@ -19,8 +19,7 @@ class PortalHttpClientTest {
                 5000, 10000, 1, 100
         );
         var batch = new AppProperties.BatchProperties(50, 100, "/tmp/test", "ISO-8859-1", ";", false);
-        var schedule = new AppProperties.ScheduleProperties("-", false);
-        var props = new AppProperties(portal, batch, schedule);
+        var props = new AppProperties(portal, batch);
         client = new PortalHttpClient(props);
     }
 

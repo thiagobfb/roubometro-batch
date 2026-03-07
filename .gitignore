@@ -53,6 +53,10 @@ build/
 data/
 /tmp/
 
+### AWS CLI install ###
+/aws/
+awscliv2.zip
+
 # CSV downloads
 *.csv
 !src/test/resources/fixtures/*.csv
