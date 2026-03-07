@@ -115,7 +115,10 @@ cat > /tmp/github-oidc-trust.json << 'EOF'
           "token.actions.githubusercontent.com:aud": "sts.amazonaws.com"
         },
         "StringLike": {
-          "token.actions.githubusercontent.com:sub": "repo:thiagobfb/roubometro-batch:ref:refs/heads/main"
+          "token.actions.githubusercontent.com:sub": [
+            "repo:thiagobfb/roubometro-batch:ref:refs/heads/main",
+            "repo:thiagobfb/roubometro-batch:environment:production"
+          ]
         }
       }
     }
@@ -128,7 +131,9 @@ aws iam create-role \
   --assume-role-policy-document file:///tmp/github-oidc-trust.json
 ```
 
-> **Seguranca**: a condicao `StringLike` com `ref:refs/heads/main` garante que **somente** workflows disparados pela branch `main` podem assumir essa role. Um push em outra branch ou um fork nao consegue usar essas permissoes.
+> **Seguranca**: a condicao `StringLike` garante que **somente** workflows disparados pela branch `main` podem assumir essa role. Um push em outra branch ou um fork nao consegue usar essas permissoes.
+>
+> **Importante**: o job `deploy` usa `environment: production`, o que faz o token OIDC enviar `environment:production` no campo `sub` em vez de `ref:refs/heads/main`. Por isso a trust policy precisa aceitar **ambos** os padroes.
 
 ### 1.3 Dar permissoes a role
 
@@ -551,9 +556,34 @@ Isso e util para re-deploy sem precisar fazer um commit.
 
 **Causa**: a trust policy da role nao esta configurada corretamente para o seu repositorio.
 
-**Solucao**: verifique se o campo `sub` na trust policy corresponde ao seu repositorio:
+**Solucao**: verifique se o campo `sub` na trust policy aceita ambos os padroes:
 ```json
-"token.actions.githubusercontent.com:sub": "repo:SEU-USUARIO/roubometro-batch:ref:refs/heads/main"
+"token.actions.githubusercontent.com:sub": [
+  "repo:SEU-USUARIO/roubometro-batch:ref:refs/heads/main",
+  "repo:SEU-USUARIO/roubometro-batch:environment:production"
+]
+```
+
+> **Por que dois padroes?** Jobs sem `environment` enviam `ref:refs/heads/main` no token OIDC. Jobs com `environment: production` (como o deploy) enviam `environment:production`. A trust policy precisa aceitar ambos.
+
+### Erro: `Incorrect token audience`
+
+**Causa**: o audience do OIDC Identity Provider esta errado (ex: `sts.amazon.com` em vez de `sts.amazonaws.com`).
+
+**Solucao**: verifique e corrija o audience:
+```bash
+# Verificar
+aws iam get-open-id-connect-provider \
+  --open-id-connect-provider-arn arn:aws:iam::SEU_ACCOUNT_ID:oidc-provider/token.actions.githubusercontent.com \
+  --query "ClientIDList"
+
+# Corrigir (se necessario)
+aws iam remove-client-id-from-open-id-connect-provider \
+  --open-id-connect-provider-arn arn:aws:iam::SEU_ACCOUNT_ID:oidc-provider/token.actions.githubusercontent.com \
+  --client-id "sts.amazon.com"
+aws iam add-client-id-to-open-id-connect-provider \
+  --open-id-connect-provider-arn arn:aws:iam::SEU_ACCOUNT_ID:oidc-provider/token.actions.githubusercontent.com \
+  --client-id "sts.amazonaws.com"
 ```
 
 ### Erro: `Error: Could not assume role with OIDC`

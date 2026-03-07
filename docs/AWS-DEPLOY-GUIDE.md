@@ -570,31 +570,48 @@ Para receber e-mail se o batch falhar:
 # Criar topico SNS para alertas
 aws sns create-topic --name roubometro-batch-alerts
 
-# Inscrever seu e-mail (voce recebera um e-mail de confirmacao)
+# Inscrever e-mails (repita para cada destinatario)
 aws sns subscribe \
   --topic-arn arn:aws:sns:us-east-1:SEU_ACCOUNT_ID:roubometro-batch-alerts \
   --protocol email \
   --notification-endpoint seu-email@example.com
 ```
 
-> **Confirme a inscricao** clicando no link do e-mail que a AWS envia.
+> **Confirme a inscricao** clicando no link do e-mail que a AWS envia. Cada e-mail precisa confirmar individualmente.
 
-Criar o alarme no CloudWatch:
+### 8.3 Criar metric filter nos logs
+
+O ECS nao emite metrica nativa de falha por task. A abordagem mais precisa e criar um **metric filter** no CloudWatch Logs que detecta quando o Spring Batch loga status `FAILED`:
+
+```bash
+aws logs put-metric-filter \
+  --log-group-name /ecs/roubometro-batch \
+  --filter-name BatchJobFailed \
+  --filter-pattern '"completed with status" "FAILED"' \
+  --metric-transformations \
+    metricName=BatchJobFailure,metricNamespace=Roubometro,metricValue=1,defaultValue=0
+```
+
+> **Como funciona**: o Spring Batch sempre loga `completed with status: [COMPLETED]` ou `completed with status: [FAILED]`. O metric filter monitora o log group e incrementa a metrica `BatchJobFailure` quando encontra `FAILED`.
+
+### 8.4 Criar alarme no CloudWatch
 
 ```bash
 aws cloudwatch put-metric-alarm \
   --alarm-name roubometro-batch-failure \
-  --alarm-description "Alerta quando o batch falha" \
-  --namespace "AWS/ECS" \
-  --metric-name "TaskFailure" \
-  --dimensions "Name=ClusterName,Value=roubometro" \
+  --alarm-description "Alerta quando o batch job falha (status FAILED nos logs)" \
+  --namespace Roubometro \
+  --metric-name BatchJobFailure \
   --statistic Sum \
-  --period 86400 \
+  --period 300 \
   --threshold 1 \
   --comparison-operator GreaterThanOrEqualToThreshold \
   --evaluation-periods 1 \
+  --treat-missing-data notBreaching \
   --alarm-actions arn:aws:sns:us-east-1:SEU_ACCOUNT_ID:roubometro-batch-alerts
 ```
+
+> **`treat-missing-data notBreaching`**: quando o batch nao esta rodando (99.9% do tempo), nao ha dados na metrica. Essa configuracao evita alarmes falsos nesses periodos.
 
 ---
 
@@ -651,6 +668,8 @@ Anote esses valores para referencia. Eles sao necessarios para futuras operacoes
 | **Execution Role ARN** | `arn:aws:iam::SEU_ACCOUNT_ID:role/roubometro-batch-execution-role` | Task definition | ✅ |
 | **Scheduler Role ARN** | `arn:aws:iam::SEU_ACCOUNT_ID:role/roubometro-batch-scheduler-role` | EventBridge | ✅ |
 | **Log Group** | `/ecs/roubometro-batch` | CloudWatch | ✅ |
+| **SNS Topic** | `roubometro-batch-alerts` | Alertas de falha | ✅ |
+| **CloudWatch Alarm** | `roubometro-batch-failure` | Dispara SNS ao detectar FAILED | ✅ |
 | **Schedule Name** | `roubometro-batch-biweekly` | EventBridge | ❌ Nao criado |
 
 ---
@@ -664,7 +683,7 @@ Anote esses valores para referencia. Eles sao necessarios para futuras operacoes
 - [x] **Rede**: VPC, subnet e security group configurados
 - [ ] **Teste manual**: `run-task` executado com sucesso, logs mostram `COMPLETED`
 - [ ] **EventBridge**: schedule `roubometro-batch-biweekly` criado
-- [ ] **Monitoramento**: alerta SNS para falhas (opcional)
+- [x] **Monitoramento**: SNS + CloudWatch metric filter + alarme configurados
 - [ ] **Banco**: `monthly_stats` com dados apos a primeira execucao
 
 ---
