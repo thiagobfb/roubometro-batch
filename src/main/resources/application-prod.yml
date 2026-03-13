@@ -8,10 +8,11 @@ spring:
       maximum-pool-size: 3
       minimum-idle: 1
       connection-timeout: 10000
-      max-lifetime: 1800000
-      idle-timeout: 600000
-      keepalive-time: 300000
+      max-lifetime: 120000
+      idle-timeout: 60000
+      keepalive-time: 30000
       connection-test-query: SELECT 1
+      leak-detection-threshold: 60000
 
   batch:
     jdbc:
