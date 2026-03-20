@@ -9,8 +9,10 @@ import br.com.roubometro.domain.model.MonthlyStat;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.batch.item.ItemProcessor;
 
-import java.lang.reflect.Method;
+import java.lang.invoke.MethodHandle;
+import java.lang.invoke.MethodHandles;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -18,6 +20,22 @@ import java.util.Map;
 public class EstatisticaItemProcessor implements ItemProcessor<CsvEstatisticaRow, List<MonthlyStat>> {
 
     private static final Map<String, String> COLUMN_TO_CATEGORY = CategoryColumnMapping.getColumnToCategory();
+    private static final Map<String, MethodHandle> METHOD_HANDLE_CACHE = new HashMap<>();
+
+    static {
+        // Pre-cache all field getters for CsvEstatisticaRow to avoid reflection overhead
+        try {
+            MethodHandles.Lookup lookup = MethodHandles.lookup();
+            for (String fieldName : COLUMN_TO_CATEGORY.keySet()) {
+                String getterName = "get" + Character.toUpperCase(fieldName.charAt(0)) + fieldName.substring(1);
+                java.lang.reflect.Method method = CsvEstatisticaRow.class.getMethod(getterName);
+                MethodHandle handle = lookup.unreflect(method);
+                METHOD_HANDLE_CACHE.put(fieldName, handle);
+            }
+        } catch (Exception e) {
+            log.warn("Failed to pre-cache MethodHandles", e);
+        }
+    }
 
     private final CategoryLookupService categoryLookupService;
     private final MunicipalityLookupService municipalityLookupService;
@@ -153,10 +171,12 @@ public class EstatisticaItemProcessor implements ItemProcessor<CsvEstatisticaRow
 
     private static String getFieldValue(CsvEstatisticaRow row, String fieldName) {
         try {
-            String getterName = "get" + Character.toUpperCase(fieldName.charAt(0)) + fieldName.substring(1);
-            Method getter = CsvEstatisticaRow.class.getMethod(getterName);
-            return (String) getter.invoke(row);
-        } catch (Exception e) {
+            MethodHandle handle = METHOD_HANDLE_CACHE.get(fieldName);
+            if (handle == null) {
+                return null;
+            }
+            return (String) handle.invoke(row);
+        } catch (Throwable e) {
             return null;
         }
     }
