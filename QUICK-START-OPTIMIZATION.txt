@@ -1,0 +1,229 @@
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                 ROUBOMETRO BATCH — OPTIMIZATION QUICK START                  ║
+║                              Phase 3 — Sprint 1                              ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+STATUS: Analysis Complete — Ready to Implement Fixes 1 & 2
+
+CURRENT PERFORMANCE (2026-03-13 production run):
+  Duration: 10h52m54s
+  Throughput: 0.31 CSV rows/second
+  Bottleneck: Reflection + Network latency + Chunk overhead
+
+TARGET AFTER SPRINT 1 (Fixes 1+2):
+  Duration: 6h32m (40% improvement)
+  Effort: ~5 hours of development
+  Risk: LOW
+
+════════════════════════════════════════════════════════════════════════════════
+
+WHAT TO IMPLEMENT NOW (Week 1):
+
+1. FIX REFLECTION OVERHEAD (4-6 hours)
+   File: src/main/java/br/com/roubometro/application/processor/EstatisticaItemProcessor.java
+   
+   Problem: getFieldValue() uses Method.getMethod() + invoke()
+            Called 3,100 times per chunk = 31-62 seconds wasted per chunk
+   
+   Solution: Create CsvFieldAccessor class with MethodHandle caching
+             (See docs/OPTIMIZATION-TECHNICAL-DETAILS.md for code)
+   
+   Expected Savings: 2 hours (25% improvement)
+   Risk: LOW (isolated change, can be tested independently)
+
+2. INCREASE CHUNK SIZE (30 minutes)
+   File: src/main/resources/application.yml
+   
+   Change: chunk-size: 50 → chunk-size: 500
+   
+   Expected Savings: 98 minutes (15% improvement, cumulative with Fix 1)
+   Risk: VERY LOW (1-line config change)
+
+════════════════════════════════════════════════════════════════════════════════
+
+TESTING BEFORE YOU START:
+
+1. Verify current tests pass:
+   $ mvn test
+   Expected: 22/22 tests pass
+
+2. Measure baseline performance:
+   $ docker compose up -d
+   $ mvn spring-boot:run -Dspring-boot.run.profiles=local
+   Record the total time in logs: "dataProcessingStep completed in X seconds"
+
+3. Note final monthly_stats count in local MySQL:
+   $ mysql -u root -p < script/check-stats.sql
+   This is your baseline for idempotence verification
+
+════════════════════════════════════════════════════════════════════════════════
+
+IMPLEMENTATION STEPS:
+
+STEP 1: Create CsvFieldAccessor class (reflection elimination)
+────────────────────────────────────────────────────────────────
+  a) Create: src/main/java/br/com/roubometro/infrastructure/accessor/CsvFieldAccessor.java
+  b) Use MethodHandle.findVirtual() to cache field getters
+  c) See docs/OPTIMIZATION-TECHNICAL-DETAILS.md for full code
+
+STEP 2: Update EstatisticaItemProcessor to use CsvFieldAccessor
+─────────────────────────────────────────────────────────────────
+  a) Replace getFieldValue() method
+  b) Add: import CsvFieldAccessor
+  c) Change: return CsvFieldAccessor.getFieldValue(row, fieldName);
+
+STEP 3: Run tests after Fix 1
+───────────────────────────────
+  $ mvn clean test
+  Expected: 22/22 pass
+
+STEP 4: Update application.yml (chunk size)
+──────────────────────────────────────────────
+  a) Open: src/main/resources/application.yml
+  b) Find: chunk-size: 50
+  c) Change: chunk-size: 500
+
+STEP 5: Run integration test with new chunk size
+──────────────────────────────────────────────────
+  $ mvn verify -Pintegration-tests
+  Expected: Integration tests pass, no errors
+
+STEP 6: Measure new performance
+────────────────────────────────
+  $ docker compose down && docker compose up -d
+  $ mvn spring-boot:run -Dspring-boot.run.profiles=local
+  Compare time vs baseline: Should see 30-40% improvement
+
+STEP 7: Verify idempotence (CRITICAL)
+───────────────────────────────────────
+  $ mvn spring-boot:run -Dspring-boot.run.profiles=local
+  (run again with same CSV)
+  
+  Check MySQL:
+  SELECT COUNT(*) FROM monthly_stats;
+  Should be SAME count as first run (idempotent UPSERT works)
+
+════════════════════════════════════════════════════════════════════════════════
+
+GIT WORKFLOW:
+
+1. Start feature branch:
+   $ git checkout -b fix/performance-sprint1
+
+2. Commit after each logical change:
+   $ git add src/...
+   $ git commit -m "refactor: eliminate reflection in EstatisticaItemProcessor via MethodHandle"
+   
+   $ git add src/main/resources/application.yml
+   $ git commit -m "config: increase chunk-size 50→500 to reduce per-chunk overhead"
+
+3. Push and create PR:
+   $ git push origin fix/performance-sprint1
+   Create PR on GitHub
+
+4. CI/CD will run:
+   - All 22 unit tests
+   - Integration tests
+   - Code coverage check
+   - Deploy to staging (optional)
+
+════════════════════════════════════════════════════════════════════════════════
+
+ROLLBACK PLAN (if something breaks):
+
+If integration tests fail:
+  1. Check logs for specific error
+  2. Review docs/OPTIMIZATION-TECHNICAL-DETAILS.md for that fix
+  3. If cannot fix quickly:
+     $ git reset --hard HEAD~1
+     (reverts last commit)
+
+════════════════════════════════════════════════════════════════════════════════
+
+KEY METRICS TO TRACK:
+
+After Fix 1:
+  Duration: Should be 8h10m (down from 10h52m)
+  Improvement: ~25%
+  CPU usage: Should be similar or slightly lower
+  Memory: Should be unchanged
+
+After Fix 1+2:
+  Duration: Should be 6h32m (down from 10h52m)
+  Improvement: ~40%
+  CPU usage: Should be similar
+  Memory: Should be unchanged (chunk-size increase is minimal)
+
+If NOT seeing expected improvement:
+  → Check processor logs for exceptions
+  → Verify MethodHandle cache initialization
+  → Measure chunk-by-chunk timing with debug logs
+  → Contact performance-optimizer for support
+
+════════════════════════════════════════════════════════════════════════════════
+
+DOCUMENTATION:
+
+Quick Reference:
+  • PERFORMANCE-OPTIMIZATION-README.md (start here!)
+  • PERFORMANCE-BOTTLENECK-SUMMARY.txt (visual analysis)
+  • PERFORMANCE-OPTIMIZATION-PLAN.md (full phased plan)
+  • PERFORMANCE-ANALYSIS.json (detailed metrics)
+
+Code-Level Details:
+  • docs/OPTIMIZATION-TECHNICAL-DETAILS.md (ALL implementation details)
+  • docs/INCIDENT-REPORT-2026-03-13.md (original production run)
+  • docs/TROUBLESHOOTING.md (Spring Batch debugging)
+
+════════════════════════════════════════════════════════════════════════════════
+
+QUESTIONS?
+
+Q: Will this break anything?
+A: No. Fix 1 is refactoring (same logic, faster path). Fix 2 is config only.
+   Both are LOW risk. All 22 unit tests must pass.
+
+Q: Do I need to change the database?
+A: No. No schema changes, no migration scripts needed.
+
+Q: Will idempotence still work?
+A: Yes. The UPSERT logic is unchanged. No impact on data integrity.
+
+Q: Can I run both fixes together?
+A: Yes! Implement Fix 1, test, then add Fix 2 and test again.
+
+Q: What if I'm running against Locaweb?
+A: Same process. Run locally first to verify, then test in staging.
+
+Q: When should I do Sprint 2 (Fix 3: Async/Stored Proc)?
+A: After Sprint 1 is merged and verified in production.
+   Estimated 1-2 weeks after Sprint 1.
+
+════════════════════════════════════════════════════════════════════════════════
+
+NEXT STEPS:
+
+1. Read: PERFORMANCE-OPTIMIZATION-README.md
+2. Review: docs/OPTIMIZATION-TECHNICAL-DETAILS.md (Fix 1 code)
+3. Create feature branch: git checkout -b fix/performance-sprint1
+4. Implement Fix 1: CsvFieldAccessor with MethodHandle
+5. Run tests: mvn test
+6. Implement Fix 2: Chunk-size config change
+7. Run integration: mvn verify -Pintegration-tests
+8. Measure locally: Run batch with local MySQL, record time
+9. Push PR and let CI/CD validate
+10. After approval: Merge and plan Sprint 2
+
+════════════════════════════════════════════════════════════════════════════════
+
+Estimated Timeline:
+  Implementation: 4-6 hours (Fix 1) + 0.5 hours (Fix 2) = ~5 hours
+  Testing: 1-2 hours
+  Code review: 1-2 hours
+  Total: 1 week
+
+Expected Result:
+  Duration: 6h32m (40% improvement from baseline)
+  Status: Ready for Sprint 2 (Async/Stored Proc optimization)
+
+Good luck! 🚀

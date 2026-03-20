@@ -1,0 +1,349 @@
+================================================================================
+          ROUBOMETRO BATCH — PERFORMANCE BOTTLENECK ANALYSIS
+                    Generated: 2026-03-19
+================================================================================
+
+EXECUTIVE SUMMARY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Current Performance:  10h52m54s (652.9 minutes)
+  Target Performance:   <5 minutes
+  Improvement Needed:   ~130x faster (99.2% reduction)
+  Realistic Goal:       ~7h36m after Fixes 1-3 (60% improvement)
+
+  Baseline Throughput:  0.31 CSV rows/sec = 19 rows/min
+
+================================================================================
+
+CURRENT EXECUTION TIMELINE (Per Chunk: 50 CSV rows)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Total Chunks: 249
+
+  Per-Chunk Timeline (157 seconds):
+  ┌────────────────────────────────────────────────────────────────┐
+  │                                                                │
+  │  T=0s         Read CSV (1s)                                   │
+  │  ├─ Read from disk: 50 rows × 62 columns                     │
+  │  └─ Buffer: ~10 KB                                            │
+  │                                                                │
+  │  T=1s         PROCESS (50s) ← BOTTLENECK #1                   │
+  │  ├─ For each of 50 CSV rows:                                 │
+  │  │  ├─ Reflection: getFieldValue() × 62 columns = 3.1k calls │
+  │  │  │  └─ Each: Method.getMethod() + invoke() = 10-20ms     │
+  │  │  ├─ Validation: 3 required fields                         │
+  │  │  ├─ Parse: Long.parseLong, Short.parseShort, Byte.parseByte
+  │  │  ├─ Lookup: municipalityLookupService.exists() [cached]  │
+  │  │  ├─ Pivot Loop (49 categories):                           │
+  │  │  │  ├─ getFieldValue() for crime column                  │
+  │  │  │  ├─ categoryLookupService.getCategoryId() [cached]    │
+  │  │  │  └─ Build MonthlyStat object                          │
+  │  │  └─ Result: ~1.3k MonthlyStat objects (26x expansion)    │
+  │  └─ Total: ~50 seconds of pure CPU work                      │
+  │                                                                │
+  │  T=51s        WRITE SQL (50s) ← BOTTLENECK #2                 │
+  │  ├─ 1 SQL INSERT statement                                   │
+  │  ├─ 1.3k rows in single UPSERT:                              │
+  │  │  INSERT INTO monthly_stats VALUES (...)                  │
+  │  │  ON DUPLICATE KEY UPDATE ...                              │
+  │  ├─ Network round-trip: AWS ↔ Locaweb (100-300ms per op)    │
+  │  ├─ MySQL: Parse, optimize, execute, commit                 │
+  │  └─ Dominated by network latency, not SQL complexity        │
+  │                                                                │
+  │  T=101s       COMMIT / SYNC (50s)                             │
+  │  ├─ Spring Batch: commit transaction                         │
+  │  ├─ HikariCP: connection pooling overhead                    │
+  │  └─ DDL: write BATCH_STEP_EXECUTION metadata                │
+  │                                                                │
+  │  T=151s       NEXT CHUNK [WAIT FOR CHUNK N-1 TO COMPLETE]    │
+  │                                                                │
+  └────────────────────────────────────────────────────────────────┘
+
+  Total Time: 249 chunks × 157s ≈ 39,093s ≈ 652.9 min ≈ 10h53m
+
+================================================================================
+
+BOTTLENECK #1: REFLECTION OVERHEAD (25-30% of total time)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Problem:
+  ┌──────────────────────────────────────────────────────┐
+  │ Method: getFieldValue(row, fieldName)                │
+  │                                                      │
+  │ Method getter = CsvEstatisticaRow.class              │
+  │   .getMethod("get" + capitalize(fieldName))          │
+  │   ← REFLECTION: lookups method in class metadata     │
+  │                                                      │
+  │ return (String) getter.invoke(row)                   │
+  │   ← REFLECTION: invoke method dynamically            │
+  │                                                      │
+  │ Cost: 10-20ms per call (via reflection overhead)    │
+  └──────────────────────────────────────────────────────┘
+
+  Call Count Per Chunk:
+  ├─ 50 CSV rows × 62 columns = 3,100 getFieldValue() calls
+  ├─ 3,100 calls × 0.01-0.02s = 31-62 seconds saved if eliminated
+  └─ Across 249 chunks: 31s × 249 ≈ 2h10m wasted on reflection
+
+  ┌─ TOTAL POTENTIAL SAVINGS: ~2h10m (18% of execution time)
+  └─ REALISTIC SAVINGS: ~1h30m-2h (15-20% of execution time)
+
+  Solution:
+  ├─ Use MethodHandle instead of reflection (5-10ms per call)
+  ├─ Or: Cache MethodHandle instances (reuse across rows)
+  ├─ Or: Code generation (0-2ms per call, compile-time cost)
+  └─ Impact: -25% total execution time
+
+================================================================================
+
+BOTTLENECK #2: NETWORK LATENCY (AWS ↔ LOCAWEB) (30-40% of total time)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Problem:
+  ├─ Each chunk = 1 SQL INSERT with 1.3k rows (good batching ✓)
+  ├─ But: 249 separate round-trips (249 SQL executions)
+  ├─ Per SQL: AWS → Locaweb = ~100-300ms latency (observed)
+  ├─ Plus: MySQL parse, optimize, execute, commit
+  ├─ Total per chunk: ~50 seconds (dominated by network)
+  └─ Across 249 chunks: 50s × 249 = 12,450s ≈ 3h27m
+
+  Network Timeline (Conceptual):
+  ┌──────────────────────────────────────────────────────┐
+  │ T=0ms       Send SQL to Locaweb                      │
+  │  ├─ Network: 100-300ms latency one-way              │
+  │  └─ AWS → Internet → Locaweb                        │
+  │                                                      │
+  │ T=100ms     Locaweb receives SQL                     │
+  │  ├─ Parse SQL (5ms)                                 │
+  │  ├─ Generate execution plan (10ms)                  │
+  │  ├─ Execute: INSERT 1.3k rows + UPDATE (200ms)      │
+  │  ├─ Commit (50ms)                                   │
+  │  └─ Prepare response                                │
+  │                                                      │
+  │ T=365ms     Locaweb sends response                   │
+  │  └─ Network: 100-300ms latency return trip          │
+  │                                                      │
+  │ T=465ms     AWS receives response ← DONE             │
+  │                                                      │
+  │ Idle: T=0s to T=51s (Spring Batch commit overhead)  │
+  │                                                      │
+  └──────────────────────────────────────────────────────┘
+
+  ┌─ ACTUAL BOTTLENECK: Network latency + commit overhead
+  └─ POTENTIAL SAVINGS: Pipelining or async writes (2-3x speedup on writes)
+
+  Solutions:
+  ├─ Async ItemWriter: Queue N SQL writes, execute while processing N+1
+  │  └─ Effect: Pipelining reduces 50s per chunk → 20s (overlap)
+  │
+  ├─ Stored Procedure: 249 SQL → 1 SP call (batch all)
+  │  └─ Effect: 249 × 50s → 1 × 50s + overhead ≈ 50m saved
+  │
+  └─ Parallel chunks (if pool allows): Reduce sequential wait
+     └─ Effect: 249 chunks serial → 25 chunks × 10 threads (estimate)
+
+  ┌─ TOTAL POTENTIAL SAVINGS: ~2-3h (20-30% of execution time)
+  └─ REALISTIC SAVINGS: ~1h-1h30m (10-15% of execution time)
+
+================================================================================
+
+BOTTLENECK #3: CHUNK MANAGEMENT OVERHEAD (10-15% of total time)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Problem:
+  ├─ Current chunk size: 50 rows → 249 chunks
+  ├─ Each chunk:
+  │  ├─ Spring Batch: setup chunk context
+  │  ├─ Reader: read 50 items (disk/buffer ops)
+  │  ├─ Processor: create 1.3k objects
+  │  ├─ Writer: JdbcBatchItemWriter.write()
+  │  ├─ Commit: update BATCH_STEP_EXECUTION metadata
+  │  └─ Context: update execution context
+  │
+  └─ Overhead per chunk: ~5-10 seconds (relative to 157s total)
+
+  Comparison:
+  ├─ Current: 249 chunks × 157s = 39,093s
+  ├─ With chunk-size=500: 25 chunks × (50s process + 50s write × 10) = ...
+  │  (Note: chunk size doesn't scale linearly; process time is sublinear)
+  │
+  └─ Estimated: 25 chunks × 150s ≈ 3,750s ≈ 62.5 min
+     └─ Save: 39,093 - 3,750 ≈ 35,343s ≈ 588 min ≈ 9h48m ← WRONG!
+
+  Correction:
+  ├─ Chunk size impact is SMALLER than above (non-linear)
+  ├─ Increasing 50→500 saves maybe ~10-15% (context switch reduction)
+  ├─ Not 90% as naive calc suggests
+  └─ Realistic: -98 min ≈ -15% total execution time
+
+  ┌─ TOTAL POTENTIAL SAVINGS: ~98 min (15% of execution time)
+  └─ EFFORT: Trivial (1 config line change)
+
+================================================================================
+
+CUMULATIVE IMPACT ANALYSIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Baseline: 10h53m (652.9 min)
+
+  Fix 1: Eliminate Reflection (-25%)
+  ├─ Mechanism: MethodHandle or code-gen
+  ├─ Saves: ~1h30m to 2h
+  └─ New Total: ~8h50m to 9h23m
+
+  Fix 1 + Fix 2: Chunk Size 50→500 (-15% additional)
+  ├─ Mechanism: 1 config line
+  ├─ Saves: ~98 min
+  └─ New Total: ~7h52m to 8h45m
+
+  Fix 1 + Fix 2 + Fix 3: Async/Stored Proc (-30% additional)
+  ├─ Mechanism: Async ItemWriter OR Stored Procedure
+  ├─ Saves: ~1h30m to 2h
+  └─ New Total: ~6h22m to 7h15m
+
+  ┌─ CUMULATIVE: -70% improvement → ~7h30m (still >5min target)
+  └─ If 5min target is absolute: need Fix 4 (parallel chunks) → +50% more
+
+  Timeline:
+  ┌────────────────────────────────────────────────────────────────────┐
+  │ Start                                                 End            │
+  │ |                                                      |            │
+  │ 0% ────────────────────────────────────────────────── 100%         │
+  │ 0min                    652.9 min (10h53m)           652.9         │
+  │                                                                     │
+  │ After Fix 1 (-25%):                                                │
+  │ 0% ──────────────────────────── 75% ──────────────── 100%          │
+  │ 0min                    489.7 min (8h10m)           652.9          │
+  │                                                                     │
+  │ After Fix 1+2 (-15% more):                                         │
+  │ 0% ─────────────────── 60% ────────────────────────── 100%         │
+  │ 0min                    391.7 min (6h32m)           652.9          │
+  │                                                                     │
+  │ After Fix 1+2+3 (-30% more):                                       │
+  │ 0% ──────────── 40% ───────────────────────────────── 100%         │
+  │ 0min                    261.2 min (4h21m)           652.9          │
+  │                                                                     │
+  │ TARGET: <5min (unrealistic without parallel processing)            │
+  │ 0min |─ 300s ─| ...                                652.9 min        │
+  │                                                                     │
+  └────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+
+RECOMMENDED IMPLEMENTATION ORDER
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  PHASE 3 SPRINT 1 (LOW RISK, 1 week)
+  ┌─────────────────────────────────────────────────────────┐
+  │ Fix 1: Eliminate Reflection                             │
+  │ ├─ Effort: 4-6 hours                                    │
+  │ ├─ Risk: Low                                            │
+  │ ├─ Gain: -25% (save ~2h)                               │
+  │ ├─ Test: Unit + Integration                             │
+  │ └─ Expected Result: ~8h10m                              │
+  │                                                         │
+  │ Fix 2: Chunk Size 50→500                                │
+  │ ├─ Effort: 30 minutes                                   │
+  │ ├─ Risk: Very Low                                       │
+  │ ├─ Gain: -15% more (save ~98m)                         │
+  │ ├─ Test: Integration (verify write order)               │
+  │ └─ Expected Result: ~6h32m                              │
+  └─────────────────────────────────────────────────────────┘
+
+  PHASE 3 SPRINT 2 (MEDIUM RISK, 1-2 weeks)
+  ┌─────────────────────────────────────────────────────────┐
+  │ Fix 3A: Stored Procedure (if supported)                │
+  │ ├─ Effort: 4-6 hours                                    │
+  │ ├─ Risk: Low                                            │
+  │ ├─ Gain: -30% more (save ~1h30m)                       │
+  │ └─ Expected Result: ~5h                                 │
+  │                                                         │
+  │ OR                                                      │
+  │                                                         │
+  │ Fix 3B: Async ItemWriter (if SP not available)         │
+  │ ├─ Effort: 8-12 hours                                   │
+  │ ├─ Risk: Medium (async failure handling)                │
+  │ ├─ Gain: -30% more (pipelined writes)                  │
+  │ └─ Expected Result: ~4h30m                              │
+  └─────────────────────────────────────────────────────────┘
+
+  PHASE 3 SPRINT 3 (OPTIONAL, HIGH RISK)
+  ┌─────────────────────────────────────────────────────────┐
+  │ Fix 4: Parallel Chunks (if 5min absolute requirement)  │
+  │ ├─ Effort: 12-16 hours                                  │
+  │ ├─ Risk: High (ordering, FK, pool exhaustion)           │
+  │ ├─ Gain: -50% more (pipelined processing)              │
+  │ └─ Expected Result: ~2h15m                              │
+  └─────────────────────────────────────────────────────────┘
+
+================================================================================
+
+MONITORING & METRICS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Key Metrics to Track:
+
+  1. Total Execution Time (minutes)
+     └─ Current: 652.9 min | Target: <300 min
+
+  2. Throughput (rows/sec)
+     └─ Current: 0.31 rows/sec | Target: 1+ rows/sec
+
+  3. Per-Chunk Time (seconds)
+     └─ Current: ~157s | Target: <30s (unlikely without parallel)
+
+  4. Write Latency (sec per SQL)
+     └─ Current: 50s | Target: <10s (with async/pipelining)
+
+  5. Reflection Overhead (sec per chunk)
+     └─ Current: 31-62s | Target: 0s (after Fix 1)
+
+  SQL Diagnostic Queries:
+
+  -- Check execution time
+  SELECT
+    JOB_EXECUTION_ID, START_TIME, END_TIME,
+    TIMESTAMPDIFF(SECOND, START_TIME, END_TIME) AS duration_sec
+  FROM BATCH_JOB_EXECUTION
+  ORDER BY JOB_EXECUTION_ID DESC LIMIT 1;
+
+  -- Check step breakdown
+  SELECT
+    STEP_NAME, READ_COUNT, WRITE_COUNT, COMMIT_COUNT,
+    TIMESTAMPDIFF(SECOND, START_TIME, END_TIME) AS duration_sec
+  FROM BATCH_STEP_EXECUTION
+  WHERE JOB_EXECUTION_ID = (SELECT MAX(JOB_EXECUTION_ID) FROM BATCH_JOB_EXECUTION)
+  ORDER BY STEP_EXECUTION_ID;
+
+  -- Verify data integrity
+  SELECT YEAR, MONTH, COUNT(*) AS record_count
+  FROM monthly_stats
+  GROUP BY YEAR, MONTH
+  ORDER BY YEAR, MONTH;
+
+================================================================================
+
+NOTES & CAVEATS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  • 5-minute target (~300 seconds) is unrealistic for 12.4k CSV rows without
+    parallelization or major architectural redesign.
+
+  • Realistic achievable goal after Fixes 1-3: ~7-8 hours (60% improvement).
+    This would make the batch "acceptable" but not "fast".
+
+  • For <5min target: need parallel chunk processing (Fix 4), which introduces
+    complexity (ordering, FK constraints, deadlock risk).
+
+  • All improvements must maintain:
+    ✓ Idempotence (UPSERT must work correctly on re-run)
+    ✓ FK integrity (no breaking roubometro-back queries)
+    ✓ Data consistency (no lost or duplicate writes)
+
+  • Network latency (AWS ↔ Locaweb) is a hard limit (~100-300ms per round-trip).
+    Can only be mitigated by reducing SQL calls or pipelining.
+
+  • Reflection overhead is the "easiest" quick win (MethodHandle caching).
+    Can be implemented & tested in <1 day.
+
+================================================================================

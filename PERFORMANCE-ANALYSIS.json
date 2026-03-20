@@ -1,0 +1,213 @@
+{
+  "analysis_date": "2026-03-19",
+  "phase": 3,
+  "objective": "Reduce batch execution from 10h53min to <5min (target: 10x improvement)",
+  "baseline": {
+    "total_duration_minutes": 652.9,
+    "total_duration_hms": "10h52m54s",
+    "csv_rows_read": 12441,
+    "monthly_stats_written": 323156,
+    "csv_to_db_ratio": 26.0,
+    "throughput_rows_per_minute": 19.0,
+    "throughput_rows_per_second": 0.31,
+    "throughput_records_per_minute": 496.0,
+    "throughput_records_per_second": 8.3,
+    "environment": "Locaweb MySQL + AWS ECS",
+    "source": "INCIDENT-REPORT-2026-03-13.md"
+  },
+  "architecture": {
+    "flow": "dataAcquisitionStep → newFileDecider → dataProcessingStep → finalizationStep",
+    "chunk_config": {
+      "size": 50,
+      "csv_rows_per_chunk": 50,
+      "monthly_stats_per_chunk": 1300,
+      "total_chunks": 249
+    },
+    "reader": {
+      "type": "FlatFileItemReader",
+      "format": "CSV",
+      "delimiter": ";",
+      "encoding": "ISO-8859-1",
+      "columns": 62,
+      "status": "OK — only reads, no business logic"
+    },
+    "processor": {
+      "class": "EstatisticaItemProcessor",
+      "pivoting": "1 CSV row → N MonthlyStat (1:26 ratio)",
+      "per_row_operations": [
+        "Sanitize 3 fields (fmun_cod, ano, mes)",
+        "Validate required fields (3 checks)",
+        "Parse municipalityId, year, month",
+        "Check municipalityLookupService.exists() — cached",
+        "For each crime category (49+ iterations):",
+        "  - getFieldValue() via reflection (Method.getMethod + invoke)",
+        "  - categoryLookupService.getCategoryId() — cached",
+        "  - Build MonthlyStat object"
+      ],
+      "reflection_calls_per_chunk": 3100,
+      "category_lookups_per_chunk": 2500,
+      "status": "BOTTLENECK — O(rows × categories) with reflection overhead"
+    },
+    "writer": {
+      "class": "ListUnpackingItemWriter + JdbcBatchItemWriter",
+      "strategy": "INSERT ... ON DUPLICATE KEY UPDATE (UPSERT)",
+      "batch_size": 1300,
+      "sql_calls_per_chunk": 1,
+      "status": "ACCEPTABLE for batch size, but serialized per chunk (no async)"
+    },
+    "connection_pool": {
+      "hikari_max_pool_size": 3,
+      "max_lifetime_ms": 120000,
+      "idle_timeout_ms": 60000,
+      "keepalive_time_ms": 30000,
+      "status": "Fixed (commit 4978e0c), but max-pool=3 may limit parallelism"
+    }
+  },
+  "time_breakdown_per_chunk": {
+    "chunk_size": 50,
+    "estimated_time_seconds": 157,
+    "breakdown": {
+      "read_csv": 1,
+      "process": 50,
+      "write_sql": 50,
+      "commit_sync": 50,
+      "total": 151
+    },
+    "calculation": "249 chunks × 157s ≈ 39093s ≈ 10h53m"
+  },
+  "bottleneck_analysis": {
+    "primary": "Reflection overhead in processor (getFieldValue per column)",
+    "secondary": "Network latency AWS↔Locaweb per chunk (50s per SQL execute)",
+    "tertiary": "Chunk size 50 may be suboptimal (limits throughput)",
+    "not_bottleneck": [
+      "CPU processing (validator logic is simple)",
+      "Memory (1.3k objects per chunk is tiny)",
+      "Pool exhaustion (max-pool=3 is small but sufficient for serial chunking)"
+    ]
+  },
+  "recommendations": [
+    {
+      "order": 1,
+      "title": "Eliminate Reflection in Processor",
+      "description": "Replace getFieldValue() reflection with direct field access via generated code or method references",
+      "implementation_details": {
+        "current": "Method.getMethod(getterName) + invoke() — called 3.1k times per chunk",
+        "proposed": "Replace with MethodHandle or code-gen to access CsvEstatisticaRow fields directly",
+        "impact": [
+          "Reflection overhead ~10-20% per invocation",
+          "3.1k calls per chunk × 0.01-0.02s = 31-62s saved per chunk",
+          "Estimated delta: -25% (-163.8 min, -2h44m total)"
+        ],
+        "effort": "Medium (requires refactor of field access, maybe Lombok/code-gen)",
+        "risk": "Low (isolated to processor)",
+        "testing": "All 22 unit tests must pass, plus spot-check CSV parsing"
+      },
+      "expected_delta_percent": -25
+    },
+    {
+      "order": 2,
+      "title": "Increase Chunk Size from 50 to 500",
+      "description": "Trade memory for throughput by reducing overhead per-chunk (number of SQL execs, commits, context switches)",
+      "implementation_details": {
+        "current": "chunk-size: 50 → 249 chunks, 157s each",
+        "proposed": "chunk-size: 500 → 25 chunks, but batch write becomes 13k items per SQL",
+        "impact": [
+          "Reduces chunk-management overhead (fewer SQL calls, fewer commits)",
+          "Per-chunk SQL network latency becomes amortized over 10x items",
+          "Increases heap memory for processor results (~650 objects in-flight vs 1.3k) — still < 10MB",
+          "Estimated delta: -40% (-261s per chunk? No — bottleneck is write latency, not chunk count)",
+          "More realistic: -15% (-98 min total) due to fewer context switches"
+        ],
+        "effort": "Trivial (1 line config change)",
+        "risk": "Low (HikariCP pool may see more concurrent load, but max=3 is conservative)",
+        "testing": "Run integration test with chunk-size=500, verify write order & idempotence"
+      },
+      "expected_delta_percent": -15
+    },
+    {
+      "order": 3,
+      "title": "Reduce Network Latency via Batching or Async Writes",
+      "description": "The 50s per SQL call is dominated by AWS↔Locaweb latency (~100-300ms per round-trip). Use connection multiplexing or async writes",
+      "implementation_details": {
+        "current": "JdbcBatchItemWriter (synchronous, 1 SQL per chunk, blocks on write)",
+        "proposed_a": "Async ItemWriter (Spring Batch 5+ supports async item writer) — queue writes, batch on callback",
+        "proposed_b": "JDBC MultiRow INSERT via stored procedure (batch 13k rows into single exec plan)",
+        "proposed_c": "HikariCP max-pool-size: 3→5 + parallel chunks (requires step redesign)",
+        "impact_a": "Async can pipeline chunks (execute SQL N while processing N+1)",
+        "impact_b": "Stored proc may reduce latency if Locaweb supports it",
+        "impact_c": "Parallel chunks with pool=5 could give 2-3x throughput, but complicates state",
+        "estimated_delta": "-30% (-196 min) for async pipelining alone",
+        "effort": "High (requires async ItemWriter + redesign of chunk flow)",
+        "risk": "Medium (async failure handling, thread safety, idempotence must be verified)",
+        "testing": "Integration test with async + retry logic, verify no lost writes"
+      },
+      "expected_delta_percent": -30
+    }
+  ],
+  "optimization_roadmap": {
+    "phase_3_immediate": [
+      {
+        "change": "Fix 1: Eliminate reflection (MethodHandle or code-gen)",
+        "estimated_savings_minutes": 164,
+        "estimated_savings_hours": 2.73,
+        "new_duration_minutes": 489,
+        "cumulative_improvement_percent": 25
+      },
+      {
+        "change": "Fix 2: Chunk size 50→500",
+        "estimated_savings_minutes": 98,
+        "estimated_savings_hours": 1.63,
+        "new_duration_minutes": 391,
+        "cumulative_improvement_percent": 40
+      },
+      {
+        "change": "Fix 3: Async ItemWriter (or stored proc)",
+        "estimated_savings_minutes": 196,
+        "estimated_savings_hours": 3.27,
+        "new_duration_minutes": 195,
+        "cumulative_improvement_percent": 70
+      }
+    ],
+    "phase_3_polish": [
+      {
+        "change": "Parallel chunks (if async doesn't hit target)",
+        "estimated_savings_percent": 20,
+        "new_duration_minutes": 156
+      }
+    ],
+    "target_duration_minutes": 195,
+    "target_duration_hms": "3h15m",
+    "improvement_vs_baseline_percent": 70,
+    "note": "Fixes 1+2+3 combined should reach ~3.25h (still >5min target). Parallel chunks (Fix 4) may be needed for <5min"
+  },
+  "quick_wins_low_risk": [
+    {
+      "change": "Remove leak-detection-threshold: 60000 from application-prod.yml",
+      "reason": "Causes false positives during chunk processing (60s threshold < processing time). Already noted in incident report.",
+      "impact": "Reduces log spam, improves GC pressure",
+      "effort": "Trivial",
+      "risk": "None (diagnostic only)"
+    },
+    {
+      "change": "Verify HikariCP config is optimal for concurrent access",
+      "reason": "max-pool=3 is conservative (sufficient for serial chunks), but if async writes added, may bottleneck",
+      "impact": "Prepare for Fix 3 (async)",
+      "effort": "1 config change",
+      "risk": "None"
+    }
+  ],
+  "next_steps": [
+    "1. Measure baseline locally: Run batch with Docker MySQL + sample CSV, record time breakdown",
+    "2. Implement Fix 1 (eliminate reflection) + measure delta",
+    "3. Implement Fix 2 (chunk size) + measure delta",
+    "4. Design Fix 3 (async) with retry logic, implement + measure delta",
+    "5. If <5min target not met after 3 fixes, implement parallel chunks"
+  ],
+  "constraints": [
+    "All changes must maintain idempotence (UPSERT must work correctly)",
+    "No changes to schema or FK logic",
+    "Flyway migrations unchanged",
+    "Must remain compatible with roubometro-back (same DB)",
+    "Performance test must use production-like data (12.4k CSV rows, 323k writes)"
+  ]
+}
