@@ -2,6 +2,7 @@ package br.com.roubometro.infrastructure.writer;
 
 import br.com.roubometro.domain.model.MonthlyStat;
 import br.com.roubometro.integration.AbstractBatchIntegrationTest;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.batch.item.Chunk;
 import org.springframework.batch.item.database.JdbcBatchItemWriter;
@@ -19,6 +20,11 @@ class MonthlyStatItemWriterIntegrationTest extends AbstractBatchIntegrationTest 
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @BeforeEach
+    void cleanUp() {
+        jdbcTemplate.update("DELETE FROM monthly_stats");
+    }
 
     @Test
     void writesStatsToDatabase() throws Exception {
