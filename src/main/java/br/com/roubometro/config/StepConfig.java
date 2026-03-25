@@ -89,6 +89,7 @@ public class StepConfig {
                 .retry(DeadlockLoserDataAccessException.class)
                 .retry(TransientDataAccessException.class)
                 .listener(new LookupInitializerListener(categoryLookupService, municipalityLookupService))
+                .allowStartIfComplete(true)
                 .build();
     }
 
@@ -101,6 +102,7 @@ public class StepConfig {
         log.info("Configuring step: finalizationStep");
         return new StepBuilder("finalizationStep", jobRepository)
                 .tasklet(finalizationTasklet, transactionManager)
+                .allowStartIfComplete(true)
                 .build();
     }
 }
