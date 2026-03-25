@@ -21,7 +21,7 @@ public class CsvItemReaderConfig {
     @StepScope
     public FlatFileItemReader<CsvEstatisticaRow> csvItemReader(
             @Value("#{jobExecutionContext['csvFilePath']}") String csvFilePath,
-            @Value("${roubometro.batch.csv-encoding:ISO-8859-1}") String encoding,
+            @Value("${roubometro.batch.csv-encoding:UTF-8}") String encoding,
             @Value("${roubometro.batch.csv-delimiter:;}") String delimiter
     ) {
         log.info("Configuring CSV reader: file={}, encoding={}, delimiter='{}'", csvFilePath, encoding, delimiter);

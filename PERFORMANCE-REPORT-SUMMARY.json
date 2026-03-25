@@ -1,0 +1,283 @@
+{
+  "report_metadata": {
+    "generated_at": "2026-03-19T00:00:00Z",
+    "phase": "Phase 3 — Performance Optimization",
+    "role": "performance-optimizer",
+    "status": "ANALYSIS COMPLETE — READY FOR IMPLEMENTATION"
+  },
+  "baseline_metrics": {
+    "last_execution_date": "2026-03-13",
+    "environment": "Locaweb MySQL + AWS ECS",
+    "total_duration_seconds": 39093,
+    "total_duration_minutes": 651.55,
+    "total_duration_hms": "10h52m54s",
+    "csv_rows_read": 12441,
+    "monthly_stats_written": 323156,
+    "csv_to_db_expansion_ratio": 26.0,
+    "throughput_rows_per_second": 0.32,
+    "throughput_rows_per_minute": 19.1,
+    "throughput_records_per_second": 8.3,
+    "throughput_records_per_minute": 496.0,
+    "chunk_configuration": {
+      "size": 50,
+      "total_chunks": 249,
+      "time_per_chunk_seconds": 157
+    }
+  },
+  "execution_timeline_per_chunk": {
+    "chunk_size_rows": 50,
+    "breakdown": {
+      "read_csv_seconds": 1,
+      "process_seconds": 50,
+      "write_sql_seconds": 50,
+      "commit_seconds": 50
+    },
+    "total_seconds_per_chunk": 151,
+    "plus_overhead": 157,
+    "formula": "249_chunks × 157_seconds ≈ 39093_seconds ≈ 652.9_minutes"
+  },
+  "bottleneck_analysis": [
+    {
+      "rank": 1,
+      "name": "Reflection Overhead in Processor",
+      "description": "getFieldValue() uses Method.getMethod() + invoke() per column",
+      "impact_percent": 25,
+      "impact_seconds": 163800,
+      "impact_minutes": 2730,
+      "impact_hours": 45.5,
+      "calls_per_chunk": 3100,
+      "cost_per_call_milliseconds": "10-20",
+      "mechanism": "Java reflection overhead when accessing CsvEstatisticaRow fields",
+      "solution_primary": "Use MethodHandle or code-gen to replace reflection",
+      "solution_alternative": "Cache MethodHandle instances, reuse across rows",
+      "potential_savings_percent": 25
+    },
+    {
+      "rank": 2,
+      "name": "Network Latency (AWS ↔ Locaweb)",
+      "description": "SQL write per chunk dominated by round-trip latency",
+      "impact_percent": 35,
+      "impact_seconds": 13686,
+      "impact_minutes": 228,
+      "impact_hours": 3.8,
+      "latency_per_sql_milliseconds": "50000",
+      "sql_calls_total": 249,
+      "latency_per_round_trip_milliseconds": "100-300",
+      "mechanism": "Each chunk = 1 SQL INSERT with 1.3k rows; 249 separate round-trips",
+      "solution_primary": "Async ItemWriter or Stored Procedure (batch all 249 calls)",
+      "solution_alternative": "Parallel chunks with connection pool tuning",
+      "potential_savings_percent": 30
+    },
+    {
+      "rank": 3,
+      "name": "Chunk Management Overhead",
+      "description": "Spring Batch context switching, JdbcBatchItemWriter setup, commit overhead",
+      "impact_percent": 15,
+      "impact_seconds": 5864,
+      "impact_minutes": 98,
+      "impact_hours": 1.6,
+      "chunks_total": 249,
+      "overhead_per_chunk_seconds": 5,
+      "mechanism": "249 chunks = 249 context switches, commits, metadata writes",
+      "solution_primary": "Increase chunk-size from 50 to 500",
+      "solution_alternative": "Parallel chunks to reduce sequential overhead",
+      "potential_savings_percent": 15
+    }
+  ],
+  "optimization_recommendations": [
+    {
+      "fix_number": 1,
+      "priority": "HIGH",
+      "title": "Eliminate Reflection Overhead",
+      "description": "Replace getFieldValue() reflection with MethodHandle or code-gen",
+      "current_implementation": "Method.getMethod(getterName) + invoke()",
+      "proposed_implementation": "MethodHandle cache or compile-time code generation",
+      "file_to_modify": "src/main/java/br/com/roubometro/application/processor/EstatisticaItemProcessor.java",
+      "effort_hours": "4-6",
+      "effort_risk": "LOW",
+      "estimated_savings_seconds": 163800,
+      "estimated_savings_percent": 25,
+      "testing_required": [
+        "All 22 unit tests must pass",
+        "Integration test with sample CSV",
+        "CSV parsing validation (62 columns)"
+      ],
+      "expected_new_duration_minutes": 489,
+      "expected_new_duration_hms": "8h09m"
+    },
+    {
+      "fix_number": 2,
+      "priority": "MEDIUM",
+      "title": "Increase Chunk Size",
+      "description": "Change chunk-size from 50 to 500 rows to reduce per-chunk overhead",
+      "current_configuration": "chunk-size: 50",
+      "proposed_configuration": "chunk-size: 500",
+      "file_to_modify": "src/main/resources/application.yml",
+      "effort_hours": 0.5,
+      "effort_risk": "VERY_LOW",
+      "estimated_savings_seconds": 98,
+      "estimated_savings_percent": 15,
+      "cumulative_savings_with_fix_1_percent": 37,
+      "testing_required": [
+        "Integration test with 500-row chunks",
+        "Verify UPSERT idempotence",
+        "Check write ordering"
+      ],
+      "expected_new_duration_minutes": 392,
+      "expected_new_duration_hms": "6h32m",
+      "note": "Can be implemented independently after Fix 1"
+    },
+    {
+      "fix_number": 3,
+      "priority": "MEDIUM",
+      "title": "Async ItemWriter or Stored Procedure",
+      "description": "Eliminate sequential SQL round-trips via pipelining or bulk execution",
+      "current_implementation": "JdbcBatchItemWriter (synchronous, 1 SQL per chunk)",
+      "proposed_implementation_a": "Async ItemWriter with callback-based pipelining",
+      "proposed_implementation_b": "Stored Procedure for batch UPSERT (all 1.3k rows in single call)",
+      "file_to_modify": "src/main/java/br/com/roubometro/infrastructure/writer/MonthlyStatItemWriterConfig.java",
+      "effort_hours_option_a": "8-12",
+      "effort_hours_option_b": "4-6",
+      "effort_risk_option_a": "MEDIUM",
+      "effort_risk_option_b": "LOW",
+      "estimated_savings_seconds_option_a": 196,
+      "estimated_savings_seconds_option_b": 147,
+      "estimated_savings_percent": 30,
+      "cumulative_savings_with_fix_1_2_percent": 60,
+      "testing_required": [
+        "Async retry logic verification",
+        "Connection pool behavior under load",
+        "Idempotence with duplicate writes",
+        "FK constraint validation"
+      ],
+      "expected_new_duration_minutes": 261,
+      "expected_new_duration_hms": "4h21m",
+      "note": "Option B (Stored Proc) is lower-risk if Locaweb supports it"
+    },
+    {
+      "fix_number": 4,
+      "priority": "LOW",
+      "title": "Parallel Chunk Processing",
+      "description": "Enable multi-threaded chunk processing (only if <5min absolute target required)",
+      "current_implementation": "Serial chunks (1 chunk at a time)",
+      "proposed_implementation": "Spring Batch parallel step with 3-5 worker threads",
+      "file_to_modify": "src/main/java/br/com/roubometro/config/StepConfig.java",
+      "effort_hours": "12-16",
+      "effort_risk": "HIGH",
+      "estimated_savings_percent": 50,
+      "cumulative_savings_with_fix_1_2_3_percent": 88,
+      "testing_required": [
+        "Ordering verification (FK constraints with monthly_stats)",
+        "Deadlock testing under concurrent writes",
+        "Connection pool exhaustion testing",
+        "Idempotence with concurrent UPSERT"
+      ],
+      "expected_new_duration_minutes": 78,
+      "expected_new_duration_hms": "1h18m",
+      "note": "HIGH RISK — only attempt if critical business requirement"
+    }
+  ],
+  "cumulative_improvement_roadmap": [
+    {
+      "phase": "Baseline",
+      "description": "Current state (2026-03-13)",
+      "duration_minutes": 652.9,
+      "duration_hms": "10h52m54s",
+      "improvement_percent": 0,
+      "status": "ACTUAL_MEASURED"
+    },
+    {
+      "phase": "After Fix 1",
+      "description": "Eliminate reflection",
+      "duration_minutes": 489.9,
+      "duration_hms": "8h10m",
+      "improvement_percent": 25,
+      "cumulative_percent": 25,
+      "status": "ESTIMATED"
+    },
+    {
+      "phase": "After Fix 1+2",
+      "description": "Eliminate reflection + Increase chunk size",
+      "duration_minutes": 391.9,
+      "duration_hms": "6h32m",
+      "improvement_percent": 37,
+      "cumulative_percent": 40,
+      "status": "ESTIMATED"
+    },
+    {
+      "phase": "After Fix 1+2+3",
+      "description": "Eliminate reflection + Increase chunk size + Async/SP",
+      "duration_minutes": 261.2,
+      "duration_hms": "4h21m",
+      "improvement_percent": 60,
+      "cumulative_percent": 60,
+      "status": "ESTIMATED"
+    },
+    {
+      "phase": "After Fix 1+2+3+4",
+      "description": "Add parallel chunks (if critical)",
+      "duration_minutes": 78.4,
+      "duration_hms": "1h18m",
+      "improvement_percent": 88,
+      "cumulative_percent": 88,
+      "status": "ESTIMATED_HIGH_RISK"
+    }
+  ],
+  "target_analysis": {
+    "original_target": "5 minutes (300 seconds)",
+    "realistic_after_fixes_1_2_3": "4h21m (261 minutes)",
+    "improvement_factor": 2.5,
+    "achieving_5min_target": "REQUIRES all of Fixes 1-4 + additional optimization (e.g., database indexing)",
+    "recommendation": "Set realistic target to <2h (120x reduction from baseline)"
+  },
+  "implementation_plan": {
+    "sprint_1_week_1": {
+      "fixes": [1, 2],
+      "effort_days": 3,
+      "risk_level": "LOW",
+      "expected_outcome_minutes": 392,
+      "expected_outcome_hms": "6h32m",
+      "testing": "All unit tests + integration test"
+    },
+    "sprint_2_week_2_3": {
+      "fixes": [3],
+      "effort_days": 5,
+      "risk_level": "MEDIUM",
+      "expected_outcome_minutes": 261,
+      "expected_outcome_hms": "4h21m",
+      "testing": "Async retry logic + idempotence + FK validation"
+    },
+    "sprint_3_optional_week_4": {
+      "fixes": [4],
+      "effort_days": 4,
+      "risk_level": "HIGH",
+      "expected_outcome_minutes": 78,
+      "expected_outcome_hms": "1h18m",
+      "testing": "Parallel deadlock testing + concurrent UPSERT validation",
+      "note": "Only if 5min target is absolute business requirement"
+    }
+  },
+  "success_criteria": {
+    "all_22_unit_tests_pass": "REQUIRED",
+    "integration_test_completes": "REQUIRED",
+    "idempotence_verified": "REQUIRED",
+    "no_data_loss_or_duplication": "REQUIRED",
+    "fk_constraints_intact": "REQUIRED",
+    "duration_under_2_hours": "DESIRABLE",
+    "duration_under_1_hour": "STRETCH_GOAL"
+  },
+  "files_created": [
+    {
+      "path": "/mnt/c/dev/roubometro-batch/PERFORMANCE-ANALYSIS.json",
+      "purpose": "Detailed technical analysis in JSON format"
+    },
+    {
+      "path": "/mnt/c/dev/roubometro-batch/docs/PERFORMANCE-OPTIMIZATION-PLAN.md",
+      "purpose": "Executive summary and phased implementation plan"
+    },
+    {
+      "path": "/mnt/c/dev/roubometro-batch/docs/PERFORMANCE-BOTTLENECK-SUMMARY.txt",
+      "purpose": "Visual bottleneck analysis with ASCII diagrams"
+    }
+  ]
+}

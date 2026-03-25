@@ -461,7 +461,7 @@ Se aparecer `COMPLETED`, o batch rodou com sucesso.
 
 ## Passo 7: Agendar a execucao com EventBridge
 
-O EventBridge Scheduler substitui o cron do Linux. Vamos agendar o batch para rodar semanalmente (suficiente para capturar as atualizacoes mensais do ISP-RJ com no maximo ~7 dias de atraso).
+O EventBridge Scheduler substitui o cron do Linux. O batch roda diariamente as 3h (horario de Sao Paulo). Como o CSV do ISP-RJ e atualizado mensalmente, na maioria dos dias o batch detecta hash identico e encerra em segundos sem custo significativo (~$0.02/mes a mais que semanal).
 
 ### 7.1 Criar a role para o EventBridge
 
@@ -516,7 +516,7 @@ aws iam put-role-policy \
 ```bash
 aws scheduler create-schedule \
   --name roubometro-batch-biweekly \
-  --schedule-expression "cron(0 3 ? * SUN *)" \
+  --schedule-expression "cron(0 3 * * ? *)" \
   --schedule-expression-timezone "America/Sao_Paulo" \
   --flexible-time-window '{"Mode": "OFF"}' \
   --target '{
@@ -537,22 +537,15 @@ aws scheduler create-schedule \
   }'
 ```
 
-> **`cron(0 3 ? * SUN *)`** = todo domingo as 3h da manha (horario de Sao Paulo).
+> **`cron(0 3 * * ? *)`** = todos os dias as 3h da manha (horario de Sao Paulo).
 >
-> **Por que semanal e nao quinzenal?** O cron padrao nao suporta "a cada 2 semanas" nativamente. Opcoes:
+> **Por que diario?** O batch e idempotente — se nao houver dados novos, detecta hash identico e termina em segundos sem custo significativo. A execucao diaria reduz o atraso maximo de deteccao de novos dados de 7 dias para 24 horas, com custo adicional desprezivel (~$0.02/mes).
 >
-> | Opcao | Expressao | Comportamento |
-> |-------|-----------|---------------|
-> | **Semanal (recomendado)** | `cron(0 3 ? * SUN *)` | Todo domingo 3h. Custo extra: ~$0.04/mes |
-> | Quinzenal aproximado | `rate(14 days)` | A cada 14 dias, mas nao garante cair no domingo |
->
-> **Recomendacao**: use semanal. O batch e idempotente — se nao houver dados novos, termina em segundos sem custo significativo. A diferenca de custo entre semanal e quinzenal e ~$0.04/mes (4 execucoes vs 2).
->
-> **Por que domingo 3h?** Horario de baixa atividade, menor chance de conflito com outros processos, e o CSV do ISP-RJ e atualizado durante a semana.
+> **Por que 3h?** Horario de baixa atividade, menor chance de conflito com outros processos.
 
 ### 7.3 Verificar no console
 
-**EventBridge > Schedules > roubometro-batch-weekly** — mostra a proxima execucao prevista.
+**EventBridge > Schedules > roubometro-batch-biweekly** — mostra a proxima execucao prevista.
 
 ---
 
@@ -670,7 +663,7 @@ Anote esses valores para referencia. Eles sao necessarios para futuras operacoes
 | **Log Group** | `/ecs/roubometro-batch` | CloudWatch | ✅ |
 | **SNS Topic** | `roubometro-batch-alerts` | Alertas de falha | ✅ |
 | **CloudWatch Alarm** | `roubometro-batch-failure` | Dispara SNS ao detectar FAILED | ✅ |
-| **Schedule Name** | `roubometro-batch-biweekly` | EventBridge | ❌ Nao criado |
+| **Schedule Name** | `roubometro-batch-biweekly` | EventBridge | ✅ `cron(0 3 * * ? *)` America/Sao_Paulo (diario) |
 
 ---
 
@@ -682,7 +675,7 @@ Anote esses valores para referencia. Eles sao necessarios para futuras operacoes
 - [x] **ECS**: cluster `roubometro` criado, task definition registrada (rev.2)
 - [x] **Rede**: VPC, subnet e security group configurados
 - [ ] **Teste manual**: `run-task` executado com sucesso, logs mostram `COMPLETED`
-- [ ] **EventBridge**: schedule `roubometro-batch-biweekly` criado
+- [x] **EventBridge**: schedule `roubometro-batch-biweekly` criado
 - [x] **Monitoramento**: SNS + CloudWatch metric filter + alarme configurados
 - [ ] **Banco**: `monthly_stats` com dados apos a primeira execucao
 
@@ -908,7 +901,7 @@ Para mudar o horario ou frequencia, atualize o schedule no EventBridge:
 ```bash
 aws scheduler update-schedule \
   --name roubometro-batch-biweekly \
-  --schedule-expression "cron(0 3 ? * SUN *)" \
+  --schedule-expression "cron(0 3 * * ? *)" \
   --schedule-expression-timezone "America/Sao_Paulo" \
   --flexible-time-window '{"Mode": "OFF"}' \
   --target '{
@@ -933,8 +926,8 @@ Exemplos de expressoes cron do EventBridge:
 
 | Frequencia | Expressao | Descricao |
 |------------|-----------|-----------|
-| Semanal (domingo 3h) | `cron(0 3 ? * SUN *)` | Recomendado |
-| Diario (3h) | `cron(0 3 * * ? *)` | Para testes |
+| **Diario (3h)** | **`cron(0 3 * * ? *)`** | **Atual — recomendado** |
+| Semanal (domingo 3h) | `cron(0 3 ? * SUN *)` | Alternativa conservadora |
 | Mensal (dia 1, 3h) | `cron(0 3 1 * ? *)` | Economia maxima |
 | A cada 14 dias | `rate(14 days)` | Nao garante dia da semana |
 
