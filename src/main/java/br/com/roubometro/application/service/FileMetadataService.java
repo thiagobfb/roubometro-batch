@@ -5,6 +5,7 @@ import br.com.roubometro.infrastructure.repository.BatchFileMetadataRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 
@@ -16,9 +17,15 @@ public class FileMetadataService {
     private final BatchFileMetadataRepository repository;
 
     public boolean isNewFile(String fileHash) {
-        return repository.findTopByOrderByDownloadedAtDesc()
+        return repository.findTopByProcessedTrueOrderByDownloadedAtDesc()
                 .map(metadata -> !metadata.getFileHash().equals(fileHash))
                 .orElse(true);
+    }
+
+    @Transactional
+    public void cleanupUnprocessed() {
+        repository.deleteByProcessedFalse();
+        log.info("Cleaned up unprocessed file metadata records");
     }
 
     public BatchFileMetadata register(String fileName, String fileUrl, String fileHash, long fileSizeBytes) {

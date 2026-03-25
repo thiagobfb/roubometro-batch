@@ -43,7 +43,10 @@ public class DataAcquisitionTasklet implements Tasklet {
         // Download with retry
         FileDownloadService.DownloadResult result = downloadWithRetry(csvUrl);
 
-        // Check if file is new
+        // Clean up any unprocessed metadata from previous failed runs
+        fileMetadataService.cleanupUnprocessed();
+
+        // Check if file is new (compares against last successfully processed file)
         boolean isNew = fileMetadataService.isNewFile(result.fileHash());
 
         if (isNew) {
