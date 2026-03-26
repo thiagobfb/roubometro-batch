@@ -32,7 +32,7 @@ roubometro:
     retry-attempts: 3
     retry-backoff-ms: 2000
   batch:
-    chunk-size: 500
+    chunk-size: 2000
     skip-limit: 100
     temp-dir: /tmp/roubometro
     csv-encoding: ISO-8859-1
